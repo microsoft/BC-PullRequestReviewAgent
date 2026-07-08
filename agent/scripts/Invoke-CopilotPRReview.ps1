@@ -372,11 +372,14 @@ function Invoke-GitCommand {
 function Invoke-GitCommandAuthenticated {
     param([string[]] $Arguments)
 
-    if (-not $CopilotToken) {
+    # The generate phase carries GH_TOKEN; the post phase carries GITHUB_TOKEN.
+    # Either can authenticate a contents:read fetch, so use whichever is present.
+    $token = if ($CopilotToken) { $CopilotToken } else { $GithubToken }
+    if (-not $token) {
         return Invoke-GitCommand -Arguments $Arguments
     }
 
-    $basic = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$CopilotToken"))
+    $basic = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$token"))
     $env:GIT_CONFIG_COUNT = '1'
     $env:GIT_CONFIG_KEY_0 = 'http.https://github.com/.extraheader'
     $env:GIT_CONFIG_VALUE_0 = "AUTHORIZATION: basic $basic"
