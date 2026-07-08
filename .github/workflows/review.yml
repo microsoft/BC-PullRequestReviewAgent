@@ -157,6 +157,14 @@ jobs:
           IN_HEAD_SHA: ${{ inputs.head_sha }}
           IN_BASE_REF: ${{ inputs.base_ref }}
           TARGET_REPO: ${{ inputs.target_repo || github.repository }}
+          # Untrusted workflow_run fields (esp. head_branch/head owner from a
+          # fork) are passed as env DATA, never inlined into the script below,
+          # to prevent script injection via crafted branch names.
+          WR_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          WR_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          WR_HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
+          WR_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WR_BASE_BRANCH: ${{ github.event.workflow_run.pull_requests[0].base.ref }}
         run: |
           # Bypass: if the caller supplied explicit coordinates, trust them.
           if ($env:IN_PR_NUMBER -and $env:IN_HEAD_SHA -and $env:IN_BASE_REF) {
@@ -174,13 +182,13 @@ jobs:
             'User-Agent' = 'bc-pr-reviewer'
           }
 
-          $expectedHeadSha = '${{ github.event.workflow_run.head_sha }}'
+          $expectedHeadSha = $env:WR_HEAD_SHA
 
-          $prNumber = '${{ github.event.workflow_run.pull_requests[0].number }}'
+          $prNumber = $env:WR_PR_NUMBER
           if (-not $prNumber) {
-            $headOwner = '${{ github.event.workflow_run.head_repository.owner.login }}'
-            $headBranch = '${{ github.event.workflow_run.head_branch }}'
-            $baseBranch = '${{ github.event.workflow_run.pull_requests[0].base.ref }}'
+            $headOwner = $env:WR_HEAD_OWNER
+            $headBranch = $env:WR_HEAD_BRANCH
+            $baseBranch = $env:WR_BASE_BRANCH
 
             if (-not $headOwner -or -not $headBranch) {
               throw 'No PR coordinates supplied and insufficient workflow_run metadata for fallback lookup.'
