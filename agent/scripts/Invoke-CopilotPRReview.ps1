@@ -105,6 +105,13 @@ $BaseUrl          = "https://api.github.com/repos/$Repository"
 $ReviewPhase      = (($env:REVIEW_PHASE ?? 'all') + '').Trim().ToLowerInvariant()
 $AgentOutputFile  = 'agent-output.txt'
 
+# Deterministic file the model writes its final JSON findings-report to, inside
+# the Copilot CLI working directory ($BCQualityRoot). The CLI renders tool/shell
+# output as a human TUI and truncates large blocks ("… N lines"), so a report
+# echoed to the terminal can be silently cut off and lost to stdout scraping.
+# Harvesting the report from this file instead makes result capture reliable.
+$ReportFileName   = '_review-report.json'
+
 # Severity taxonomy used by the comment renderer and the MINIMUM_SEVERITY gate.
 # Lower rank = more severe. BCQuality emits blocker/major/minor/info; we map
 # into this taxonomy so the existing comment-format precedent is preserved.
@@ -736,12 +743,22 @@ whatever the skill instructs.
 OUTPUT FORMAT:
 1. The progress markers above, in order — one per sub-skill, then the
    self-review marker. Each on its own line.
-2. A blank line.
-3. The JSON findings-report per the DO output contract in
-   ./skills/do.md.
+2. Write the complete JSON findings-report (per the DO output contract
+   in ./skills/do.md) to the file ./$ReportFileName in your current
+   working directory, overwriting any existing file. Write the JSON
+   straight to the file — do NOT build it by echoing to the terminal
+   and do NOT rely on terminal output surviving, because large terminal
+   output is truncated (rendered as "… N lines") and will be lost. This
+   file is how the orchestrator harvests your findings; if it is missing,
+   truncated, or not valid JSON, every finding you found is dropped.
+3. A blank line, then also print the same JSON findings-report as your
+   final message. If the terminal truncates it, that is acceptable — the
+   file written in step 2 is authoritative.
 
-No other prose. If the dispatched skill is not a super-skill, omit
-the progress markers and return ONLY the JSON findings-report.
+No other prose. If the dispatched skill is not a super-skill, omit the
+progress markers, still write the JSON findings-report to
+./$ReportFileName, and return ONLY the JSON findings-report as your
+final message.
 
 If entry.md returns outcome 'no-match' or 'failed', return the dispatch
 record itself as a JSON document so the orchestrator can log it.
@@ -2365,6 +2382,26 @@ if ($ReviewPhase -ne 'post') {
     $prompt = Build-BootstrapPrompt -TaskContextPath '_task-context.json'
     $output = Invoke-CopilotCli -Prompt $prompt
     Pop-LogGroup
+
+    # Prefer the structured report file the model wrote to its working directory.
+    # The Copilot CLI renders shell/tool output as a human TUI and truncates
+    # large blocks ("… N lines"), so a findings-report echoed to the terminal
+    # can be silently cut off mid-JSON and lost to stdout scraping. The bootstrap
+    # prompt directs the model to also write the complete report to
+    # $ReportFileName in $BCQualityRoot; when present, that file is the
+    # authoritative, untruncated source and supersedes the scraped stdout.
+    $reportFilePath = Join-Path $BCQualityRoot $ReportFileName
+    if (Test-Path -LiteralPath $reportFilePath) {
+        $reportContent = Get-Content -LiteralPath $reportFilePath -Raw
+        if (-not [string]::IsNullOrWhiteSpace($reportContent)) {
+            Write-LogPhaseDetail "Harvested structured report from '$reportFilePath' ($($reportContent.Length) chars); superseding scraped stdout."
+            $output = $reportContent
+        } else {
+            Write-LogNotice 'Empty report file' "'$reportFilePath' exists but is empty; falling back to scraped stdout."
+        }
+    } else {
+        Write-LogNotice 'No report file' "Model did not write '$reportFilePath'; falling back to scraped stdout parsing."
+    }
 
     # Persist the raw agent output (plus transcript and filter report) so the
     # separate, write-capable publish phase can post findings without the
