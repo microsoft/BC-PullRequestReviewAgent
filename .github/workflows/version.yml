@@ -1,0 +1,57 @@
+# Cuts a new engine version on every merge to main.
+#
+# Version format: v{major}.{minor}.{run_number}, where {major}.{minor} is the
+# base read from the repo-root VERSION file (bump it deliberately for a new
+# minor/major line) and {run_number} is this workflow's monotonically
+# increasing run counter (the "build" number). Each merge therefore produces a
+# fresh, pinnable version — consumers (BCApps, BC-Bench) pin `uses:`/`engine_ref`
+# to the tag instead of a raw SHA.
+#
+# Each run creates a git tag at the merged commit and a GitHub Release with
+# auto-generated notes.
+
+name: Version on merge
+
+on:
+  push:
+    branches:
+      - main
+
+# Only the release/tag creation needs write; nothing here runs untrusted input.
+permissions:
+  contents: write
+
+concurrency:
+  group: version-on-merge
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute version
+        id: version
+        shell: bash
+        run: |
+          base="$(tr -d ' \t\r\n' < VERSION)"
+          if [[ ! "$base" =~ ^[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::VERSION must contain a 'major.minor' value (got: '$base')"
+            exit 1
+          fi
+          version="v${base}.${{ github.run_number }}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Computed engine version: $version"
+
+      - name: Create tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.version }}" \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "${{ steps.version.outputs.version }}" \
+            --generate-notes

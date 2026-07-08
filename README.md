@@ -60,6 +60,15 @@ The engine resolves the PR coordinates from the caller's `workflow_run` payload
 automatically. To review a specific PR (e.g. from `workflow_dispatch`), pass
 `pr_number`, `head_sha`, and `base_ref` explicitly to bypass resolution.
 
+### Versioning
+
+Every merge to `main` cuts a new version `v{major}.{minor}.{build}`, where
+`{major}.{minor}` comes from the repo-root [`VERSION`](VERSION) file and
+`{build}` is an auto-incrementing build number. Each version is published as a
+git tag and a GitHub Release. Consumers should pin the `uses:` ref and
+`engine_ref` to a released tag (e.g. `@v1.0.42`) rather than a raw commit SHA;
+bump the `VERSION` file to start a new minor/major line.
+
 ### Inputs (selected)
 
 | Input | Default | Meaning |
