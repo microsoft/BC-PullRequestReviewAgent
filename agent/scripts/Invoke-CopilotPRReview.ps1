@@ -363,6 +363,31 @@ function Invoke-GitCommand {
     return $output
 }
 
+# Runs a git command with an ephemeral, host-scoped credential so that fetches
+# against a PRIVATE target repo succeed. The workflow checks out the target with
+# persist-credentials:false (no token in .git/config, where an injected Copilot
+# tool-call could read it), so we inject the token per-invocation via git's
+# GIT_CONFIG_* environment override instead. The token never touches .git/config
+# or the process command line, and is removed as soon as the command returns.
+function Invoke-GitCommandAuthenticated {
+    param([string[]] $Arguments)
+
+    if (-not $CopilotToken) {
+        return Invoke-GitCommand -Arguments $Arguments
+    }
+
+    $basic = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$CopilotToken"))
+    $env:GIT_CONFIG_COUNT = '1'
+    $env:GIT_CONFIG_KEY_0 = 'http.https://github.com/.extraheader'
+    $env:GIT_CONFIG_VALUE_0 = "AUTHORIZATION: basic $basic"
+    try {
+        return Invoke-GitCommand -Arguments $Arguments
+    }
+    finally {
+        Remove-Item Env:GIT_CONFIG_COUNT, Env:GIT_CONFIG_KEY_0, Env:GIT_CONFIG_VALUE_0 -ErrorAction SilentlyContinue
+    }
+}
+
 function Get-GitChangedFiles {
     $output = Invoke-GitCommand -Arguments @('-C', $AnalysisWorkspace, 'diff', '--name-only', "origin/$BaseBranch...HEAD")
     return @($output | Where-Object { $_ -and $_.Trim() })
@@ -376,12 +401,12 @@ function Get-GitFilePatch {
 
 function Checkout-PrBranch {
     Write-Host "Fetching base branch origin/$BaseBranch"
-    $null = Invoke-GitCommand -Arguments @('-C', $TrustedWorkspace, 'fetch', 'origin', $BaseBranch, '--no-tags')
+    $null = Invoke-GitCommandAuthenticated -Arguments @('-C', $TrustedWorkspace, 'fetch', 'origin', $BaseBranch, '--no-tags')
 
     $prRef = "refs/pull/$PrNumber/head"
     $remoteRef = "refs/remotes/origin/pr/$PrNumber"
     Write-Host "Fetching PR head $prRef"
-    $null = Invoke-GitCommand -Arguments @('-C', $TrustedWorkspace, 'fetch', 'origin', "$prRef`:$remoteRef", '--no-tags')
+    $null = Invoke-GitCommandAuthenticated -Arguments @('-C', $TrustedWorkspace, 'fetch', 'origin', "$prRef`:$remoteRef", '--no-tags')
 
     $analysisParent = Split-Path -Parent $AnalysisWorkspace
     if (-not (Test-Path $analysisParent)) {
