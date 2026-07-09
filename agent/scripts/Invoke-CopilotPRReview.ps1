@@ -94,6 +94,14 @@ $AgentDateRaw     = ($env:COPILOT_REVIEW_AGENT_RELEASE_DATE ?? '').Trim()
 $AgentVersionRaw  = ($env:COPILOT_REVIEW_AGENT_RELEASE_VERSION ?? '0').Trim()
 $AgentCommentDocUrlRaw = ($env:AGENT_COMMENT_DOC_URL ?? '').Trim()
 $AnalysisWorkspace = $env:REVIEW_TARGET_WORKSPACE ?? (Join-Path (Split-Path -Parent $TrustedWorkspace) 'review-target')
+# Review source. 'pr' (default) fetches the PR head from origin into a detached
+# worktree (GitHub-hosted review). 'local' reviews a caller-provided worktree
+# ($AnalysisWorkspace / REVIEW_TARGET_WORKSPACE, already checked out at the head
+# to review) against a local base ref ($BASE_REF), with no network fetch and no
+# GitHub posting. Used by offline execution-based harnesses (e.g. BC-Bench).
+$ReviewSource = (($env:REVIEW_SOURCE ?? 'pr') + '').Trim().ToLowerInvariant()
+$BaseRef = ($env:BASE_REF ?? '').Trim()
+$DiffBaseRef = if ($ReviewSource -eq 'local') { $BaseRef } else { "origin/$BaseBranch" }
 $SummaryMarker    = '<!-- copilot-pr-review-summary -->'
 $BaseUrl          = "https://api.github.com/repos/$Repository"
 
@@ -225,13 +233,21 @@ function Assert-Config {
     if ($ReviewPhase -notin @('all', 'generate', 'post')) {
         throw "Unsupported REVIEW_PHASE: $ReviewPhase (expected all | generate | post)"
     }
-    $needsCli  = $ReviewPhase -in @('all', 'generate')
-    $needsPost = $ReviewPhase -in @('all', 'post')
+    $needsCli = $ReviewPhase -in @('all', 'generate')
+    $needsPost = ($ReviewPhase -in @('all', 'post')) -and ($ReviewSource -ne 'local')
 
-    if ($needsPost -and -not $GithubToken)  { throw 'GITHUB_TOKEN is required for posting (REVIEW_PHASE all|post)' }
-    if ($needsCli  -and -not $CopilotToken) { throw 'GH_TOKEN is required for Copilot CLI authentication (REVIEW_PHASE all|generate)' }
-    if ($PrNumber -eq 0)       { throw 'PR_NUMBER is required' }
-    if (-not $PrHeadSha)       { throw 'PR_HEAD_SHA is required' }
+    if ($ReviewSource -notin @('pr', 'local')) { throw "Unsupported REVIEW_SOURCE: $ReviewSource (expected pr | local)" }
+    if ($needsPost -and -not $GithubToken) { throw 'GITHUB_TOKEN is required for posting (REVIEW_PHASE all|post)' }
+    if ($needsCli -and -not $CopilotToken) { throw 'GH_TOKEN is required for Copilot CLI authentication (REVIEW_PHASE all|generate)' }
+    if ($ReviewSource -eq 'local') {
+        if (-not $BaseRef) { throw 'BASE_REF is required when REVIEW_SOURCE=local (the base commit/ref to diff the worktree against)' }
+        if ($ReviewPhase -eq 'post') { throw 'REVIEW_SOURCE=local does not support REVIEW_PHASE=post (local mode never posts to GitHub)' }
+        if (-not (Test-Path $AnalysisWorkspace)) { throw "REVIEW_TARGET_WORKSPACE does not exist: $AnalysisWorkspace (local mode expects a pre-checked-out worktree at the head to review)" }
+    }
+    else {
+        if ($PrNumber -eq 0) { throw 'PR_NUMBER is required' }
+        if (-not $PrHeadSha) { throw 'PR_HEAD_SHA is required' }
+    }
     if ($BaseBranch -notmatch '^[A-Za-z0-9._/-]+$') {
         throw "BASE_BRANCH contains unexpected characters: '$BaseBranch'. Expected a git ref name matching ^[A-Za-z0-9._/-]+`$."
     }
@@ -399,13 +415,13 @@ function Invoke-GitCommandAuthenticated {
 }
 
 function Get-GitChangedFiles {
-    $output = Invoke-GitCommand -Arguments @('-C', $AnalysisWorkspace, 'diff', '--name-only', "origin/$BaseBranch...HEAD")
+    $output = Invoke-GitCommand -Arguments @('-C', $AnalysisWorkspace, 'diff', '--name-only', "$DiffBaseRef...HEAD")
     return @($output | Where-Object { $_ -and $_.Trim() })
 }
 
 function Get-GitFilePatch {
     param([string] $FilePath)
-    $output = Invoke-GitCommand -Arguments @('-C', $AnalysisWorkspace, 'diff', "origin/$BaseBranch...HEAD", '--', $FilePath)
+    $output = Invoke-GitCommand -Arguments @('-C', $AnalysisWorkspace, 'diff', "$DiffBaseRef...HEAD", '--', $FilePath)
     return ($output -join "`n")
 }
 
@@ -668,19 +684,20 @@ function Build-BootstrapPrompt {
 
     $prWorktree = ($AnalysisWorkspace -replace '\\', '/')
     $taskCtxRel = '_task-context.json'
+    $reviewLabel = if ($ReviewSource -eq 'local') { "$Repository (local review)" } else { "$Repository (PR #$PrNumber)" }
 
     return @"
 TASK:
-Review the pull request changes against origin/$BaseBranch.
+Review the pull request changes against $DiffBaseRef.
 
 The pull request worktree is at: $prWorktree
-The base branch is: origin/$BaseBranch
-The repository is: $Repository (PR #$PrNumber)
+The base branch is: $DiffBaseRef
+The repository is: $reviewLabel
 
 Use git commands to analyze the changes:
-- git -C "$prWorktree" diff origin/$BaseBranch to see all changes
-- git -C "$prWorktree" diff origin/$BaseBranch -- <file> to see changes in a specific file
-- git -C "$prWorktree" diff --name-only origin/$BaseBranch to list changed files
+- git -C "$prWorktree" diff $DiffBaseRef to see all changes
+- git -C "$prWorktree" diff $DiffBaseRef -- <file> to see changes in a specific file
+- git -C "$prWorktree" diff --name-only $DiffBaseRef to list changed files
 
 CONTRACT:
 The current working directory is a BCQuality checkout. BCQuality is the
@@ -2395,7 +2412,7 @@ $AgentCommentDocUrl  = Resolve-AgentCommentDocUrl
 $AgentVersion        = "$AgentReleaseDate.v$AgentReleaseVersion"
 # Resolving the iteration reads existing PR comments, for which the generate
 # phase holds no token; only the posting phases need it.
-$ReviewIteration     = if ($ReviewPhase -eq 'generate') { 0 } else { Resolve-ReviewIteration }
+$ReviewIteration     = if ($ReviewPhase -eq 'generate' -or $ReviewSource -eq 'local') { 0 } else { Resolve-ReviewIteration }
 $script:FilterReport = Load-FilterReport
 
 # --- Configuration banner ---------------------------------------------------
@@ -2431,9 +2448,14 @@ Write-Host ''
 
 # --- Phase 1: Discovery -----------------------------------------------------
 Write-LogGroup 'Discovery'
-Checkout-PrBranch
+if ($ReviewSource -eq 'local') {
+    Write-Host "Local review: using provided worktree at $AnalysisWorkspace (base $DiffBaseRef); skipping PR fetch."
+}
+else {
+    Checkout-PrBranch
+}
 
-Write-Host "Fetching changed files via git diff (origin/$BaseBranch...HEAD)"
+Write-Host "Fetching changed files via git diff ($DiffBaseRef...HEAD)"
 $changedFileNames = @(Get-GitChangedFiles)
 Write-Host "Found $($changedFileNames.Count) changed file(s)"
 $displayCap = 50
@@ -2614,6 +2636,11 @@ if ($FailOnParseError -and $report.Outcome -eq 'failed' -and $script:LastParsing
     $errorPreview = ($script:LastParsingErrors | Select-Object -First 3) -join ' || '
     Write-LogErr 'Review failed' "Copilot output JSON parsing failed. Parse errors: $errorPreview"
     throw "Copilot output JSON parsing failed; refusing to post an empty review summary. Set COPILOT_REVIEW_FAIL_ON_PARSE_ERROR=false to bypass. Parse errors: $errorPreview"
+}
+
+if ($ReviewSource -eq 'local') {
+    Write-Host "Local review complete: findings saved to $ReviewOutputDir; posting skipped (REVIEW_SOURCE=local)."
+    return
 }
 
 # --- Phase 4: Post comments -------------------------------------------------
