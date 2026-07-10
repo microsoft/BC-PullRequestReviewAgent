@@ -78,6 +78,23 @@ on:
         type: string
         required: false
         default: ''
+      # ---- BCQuality task-context overrides (comma-separated; 'all' means unconstrained) ----
+      technologies:
+        type: string
+        required: false
+        default: ''
+      countries:
+        type: string
+        required: false
+        default: ''
+      application_area:
+        type: string
+        required: false
+        default: ''
+      bc_version:
+        type: string
+        required: false
+        default: ''
       # ---- Reviewer behaviour overrides ----
       copilot_model:
         type: string
@@ -286,6 +303,10 @@ jobs:
           BCQUALITY_DISABLED_SKILLS: ${{ inputs.disabled_skills }}
           BCQUALITY_KNOWLEDGE_ALLOW: ${{ inputs.knowledge_allow }}
           BCQUALITY_KNOWLEDGE_DENY: ${{ inputs.knowledge_deny }}
+          BCQUALITY_TECHNOLOGIES: ${{ inputs.technologies }}
+          BCQUALITY_COUNTRIES: ${{ inputs.countries }}
+          BCQUALITY_APPLICATION_AREA: ${{ inputs.application_area }}
+          BCQUALITY_BC_VERSION: ${{ inputs.bc_version }}
         run: |
           $cfg = & "${{ github.workspace }}/engine/agent/scripts/Get-BCQualityConfig.ps1"
           $repo = $cfg.bcquality.repo
@@ -331,6 +352,10 @@ jobs:
           BCQUALITY_DISABLED_SKILLS: ${{ inputs.disabled_skills }}
           BCQUALITY_KNOWLEDGE_ALLOW: ${{ inputs.knowledge_allow }}
           BCQUALITY_KNOWLEDGE_DENY: ${{ inputs.knowledge_deny }}
+          BCQUALITY_TECHNOLOGIES: ${{ inputs.technologies }}
+          BCQUALITY_COUNTRIES: ${{ inputs.countries }}
+          BCQUALITY_APPLICATION_AREA: ${{ inputs.application_area }}
+          BCQUALITY_BC_VERSION: ${{ inputs.bc_version }}
           COPILOT_MODEL: ${{ inputs.copilot_model }}
           MINIMUM_SEVERITY: ${{ inputs.minimum_severity }}
           AGENT_MINIMUM_SEVERITY: ${{ inputs.agent_minimum_severity || inputs.minimum_severity }}

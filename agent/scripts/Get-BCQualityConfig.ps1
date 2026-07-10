@@ -22,6 +22,10 @@
         BCQUALITY_DISABLED_SKILLS   disabled-skills     (comma-separated)
         BCQUALITY_KNOWLEDGE_ALLOW   knowledge.allow     (comma-separated)
         BCQUALITY_KNOWLEDGE_DENY    knowledge.deny      (comma-separated)
+        BCQUALITY_TECHNOLOGIES      task-context.technologies      (comma-separated)
+        BCQUALITY_COUNTRIES         task-context.countries         (comma-separated)
+        BCQUALITY_APPLICATION_AREA  task-context.application-area  (comma-separated)
+        BCQUALITY_BC_VERSION        task-context.bc-version        (comma-separated)
 
     Requires the powershell-yaml module. Workflows that consume this script
     install it before invoking.
@@ -147,6 +151,18 @@ if ($allowOverride) { $cfg['knowledge']['allow'] = Ensure-List (Split-CsvOverrid
 
 $denyOverride = [System.Environment]::GetEnvironmentVariable('BCQUALITY_KNOWLEDGE_DENY')
 if ($denyOverride) { $cfg['knowledge']['deny'] = Ensure-List (Split-CsvOverride $denyOverride) }
+
+$technologiesOverride = [System.Environment]::GetEnvironmentVariable('BCQUALITY_TECHNOLOGIES')
+if ($technologiesOverride) { $cfg['task-context']['technologies'] = Ensure-List (Split-CsvOverride $technologiesOverride) }
+
+$countriesOverride = [System.Environment]::GetEnvironmentVariable('BCQUALITY_COUNTRIES')
+if ($countriesOverride) { $cfg['task-context']['countries'] = Ensure-List (Split-CsvOverride $countriesOverride) }
+
+$applicationAreaOverride = [System.Environment]::GetEnvironmentVariable('BCQUALITY_APPLICATION_AREA')
+if ($applicationAreaOverride) { $cfg['task-context']['application-area'] = Ensure-List (Split-CsvOverride $applicationAreaOverride) }
+
+$bcVersionOverride = [System.Environment]::GetEnvironmentVariable('BCQUALITY_BC_VERSION')
+if ($bcVersionOverride) { $cfg['task-context']['bc-version'] = Ensure-List (Split-CsvOverride $bcVersionOverride) }
 
 # Validate enabled-layers against the known layer set; reject typos early.
 $knownLayers = @('microsoft', 'community', 'custom')
