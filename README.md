@@ -48,7 +48,7 @@ permissions:
 jobs:
   review:
     if: github.event.workflow_run.conclusion == 'success'
-    uses: microsoft/BC-PullRequestReviewAgent/.github/workflows/review.yml@<pinned-sha>
+    uses: microsoft/BC-ALReviewAgent/.github/workflows/review.yml@<pinned-sha>
     secrets: inherit
     with:
       target_repo: ${{ github.repository }}

@@ -3,7 +3,7 @@ name: BC PR Review (reusable)
 # Reusable Business Central pull-request review workflow.
 #
 # A consuming repository (e.g. microsoft/BCApps, or a partner fork) calls this
-# via `uses: microsoft/BC-PullRequestReviewAgent/.github/workflows/review.yml@<sha>`
+# via `uses: microsoft/BC-ALReviewAgent/.github/workflows/review.yml@<sha>`
 # and passes the PR coordinates plus a pointer to its own policy config. The
 # consumer owns *policy* (which BCQuality repo/ref/layers/skills, severity
 # thresholds); this engine owns *mechanism* (clone+filter BCQuality, run the
@@ -44,7 +44,7 @@ on:
         required: false
         default: ${{ github.repository }}
       engine_ref:
-        description: Ref of BC-PullRequestReviewAgent to check out for the engine scripts. Pin to match the `uses:` SHA.
+        description: Ref of BC-ALReviewAgent to check out for the engine scripts. Pin to match the `uses:` SHA.
         type: string
         required: false
         default: main
@@ -150,7 +150,7 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  ENGINE_REPO: microsoft/BC-PullRequestReviewAgent
+  ENGINE_REPO: microsoft/BC-ALReviewAgent
 
 jobs:
   resolve:
