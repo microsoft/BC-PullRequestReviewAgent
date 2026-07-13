@@ -136,10 +136,6 @@ on:
         type: string
         required: false
         default: '0'
-    secrets:
-      gh_token:
-        description: Token used to read the PR and post comments. Defaults to the caller GITHUB_TOKEN.
-        required: false
     outputs:
       pr_number:
         description: Resolved pull request number.
@@ -169,7 +165,7 @@ jobs:
       - name: Resolve PR details
         id: pr
         env:
-          GITHUB_TOKEN: ${{ secrets.gh_token || github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
           IN_PR_NUMBER: ${{ inputs.pr_number }}
           IN_HEAD_SHA: ${{ inputs.head_sha }}
           IN_BASE_REF: ${{ inputs.base_ref }}
@@ -274,7 +270,7 @@ jobs:
           ref: ${{ needs.resolve.outputs.base_ref }}
           path: trusted
           fetch-depth: 0
-          token: ${{ secrets.gh_token || github.token }}
+          token: ${{ github.token }}
           # The tool-enabled Copilot CLI runs in this job; do not leave a token
           # in .git/config where a successful prompt-injection could read it.
           persist-credentials: false
@@ -337,7 +333,7 @@ jobs:
       - name: Run Copilot PR review (generate findings)
         env:
           REVIEW_PHASE: generate
-          GH_TOKEN: ${{ secrets.gh_token || github.token }}
+          GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ inputs.target_repo || github.repository }}
           REVIEW_WORKSPACE: ${{ github.workspace }}/trusted
           REVIEW_OUTPUT_DIR: ${{ github.workspace }}/review-output
@@ -413,7 +409,7 @@ jobs:
           ref: ${{ needs.resolve.outputs.base_ref }}
           path: trusted
           fetch-depth: 0
-          token: ${{ secrets.gh_token || github.token }}
+          token: ${{ github.token }}
           # This job holds issues/pull-requests:write but posts via the GitHub
           # API (not git push), so it needs no stored credentials.
           persist-credentials: false
@@ -433,7 +429,7 @@ jobs:
       - name: Run Copilot PR review (post comments)
         env:
           REVIEW_PHASE: post
-          GITHUB_TOKEN: ${{ secrets.gh_token || github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ inputs.target_repo || github.repository }}
           REVIEW_WORKSPACE: ${{ github.workspace }}/trusted
           REVIEW_OUTPUT_DIR: ${{ github.workspace }}/review-output
