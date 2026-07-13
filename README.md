@@ -49,7 +49,6 @@ jobs:
   review:
     if: github.event.workflow_run.conclusion == 'success'
     uses: microsoft/BC-ALReviewAgent/.github/workflows/review.yml@<pinned-sha>
-    secrets: inherit
     with:
       target_repo: ${{ github.repository }}
       engine_ref: <pinned-sha>          # keep in sync with the uses: SHA
