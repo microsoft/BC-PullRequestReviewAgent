@@ -54,6 +54,9 @@
                                                (findings BCQuality knowledge does not back).
                                                Defaults to MINIMUM_SEVERITY.
         MAX_FINDINGS_PER_DOMAIN              - per-domain cap on posted findings (default: 25)
+        MAX_TOTAL_FINDINGS                   - global cap across all domains, applied after the
+                                               per-domain cap; findings are severity-sorted so the
+                                               cap keeps the most important (default: 0 = unlimited)
         COMMENT_DELAY_SECONDS                - sleep between API posts (default: 0.5)
         COPILOT_REVIEW_FAIL_ON_PARSE_ERROR   - true|false (default: true)
         COPILOT_REVIEW_AGENT_LABEL           - agent label for comment metadata
@@ -82,6 +85,7 @@ $CopilotModel     = ($env:COPILOT_MODEL ?? '').Trim()
 $MinimumSeverity  = $env:MINIMUM_SEVERITY ?? 'Medium'
 $AgentMinimumSeverity = $env:AGENT_MINIMUM_SEVERITY ?? $MinimumSeverity
 $MaxFindings      = [int]($env:MAX_FINDINGS_PER_DOMAIN ?? 25)
+$MaxTotalFindings = [int]($env:MAX_TOTAL_FINDINGS ?? 0)
 $CopilotCliTimeoutMinutes = [int]($env:COPILOT_REVIEW_CLI_TIMEOUT_MINUTES ?? 30)
 $FailOnParseErrorRaw = (($env:COPILOT_REVIEW_FAIL_ON_PARSE_ERROR ?? 'true') + '').Trim().ToLowerInvariant()
 $FailOnParseError = @('1','true','yes','on') -contains $FailOnParseErrorRaw
@@ -1520,10 +1524,20 @@ function Parse-BCQualityReport {
         foreach ($f in $sorted) { $capped.Add($f) | Out-Null }
     }
 
+    # Optional global ceiling across all domains. Findings are severity-sorted
+    # first, so the cap keeps the most important ones and drops the tail.
+    $finalFindings = if ($MaxTotalFindings -gt 0 -and $capped.Count -gt $MaxTotalFindings) {
+        @($capped |
+            Sort-Object @{Expression = { $SeverityOrder[$_.severity] }}, filePath, lineNumber |
+            Select-Object -First $MaxTotalFindings)
+    } else {
+        @($capped)
+    }
+
     return [pscustomobject]@{
         Outcome = $outcome
         OutcomeReason = $outcomeReason
-        Findings = @($capped)
+        Findings = @($finalFindings)
         Suppressed = $suppressed
         SkippedSubSkills = $skippedSubSkills
         SubResults = @($subResults)
@@ -1989,6 +2003,20 @@ function Test-NearDuplicateLocation {
 # ---------------------------------------------------------------------------
 # Post findings
 # ---------------------------------------------------------------------------
+# Content signatures already posted this run. Identical findings that recur
+# across files - most often the same code duplicated across regional app copies
+# (W1, US, ...) - collapse to a single comment instead of N duplicates.
+$script:PostedContentSignatures = [System.Collections.Generic.HashSet[string]]::new()
+
+function Get-FindingSignature {
+    param([object] $Finding)
+    # Location-independent identity: same domain + issue + recommendation is the
+    # "same comment", regardless of which file/line it lands on.
+    $sep = [string][char]0x1F
+    $key = ([string]$Finding.domain) + $sep + ([string]$Finding.issue) + $sep + ([string]$Finding.recommendation)
+    return (($key -replace '\s+', ' ').Trim()).ToLowerInvariant()
+}
+
 function Post-Findings {
     param([string] $Domain, [object[]] $Findings, [hashtable] $LineMaps, [hashtable] $ChangedFileSet)
 
@@ -2005,10 +2033,44 @@ function Post-Findings {
     if ($null -eq $existingKeys) { $existingKeys = [System.Collections.Generic.HashSet[string]]::new() }
     if ($null -eq $existingLocations) { $existingLocations = [System.Collections.Generic.List[object]]::new() }
 
+    # Group this domain's findings by content signature so identical findings
+    # recurring across files (e.g. the same code duplicated in regional app
+    # copies W1/US/etc.) collapse to a single comment, with the other locations
+    # listed on the surviving comment for tracking.
+    $sigGroups = @{}
+    foreach ($f in $Findings) {
+        $sig = Get-FindingSignature -Finding $f
+        if (-not $sigGroups.ContainsKey($sig)) { $sigGroups[$sig] = [System.Collections.Generic.List[object]]::new() }
+        $sigGroups[$sig].Add($f) | Out-Null
+    }
+
     foreach ($finding in ($Findings | Sort-Object @{Expression = { $SeverityOrder[$_.severity] }}, filePath, lineNumber)) {
         $filePath   = ($finding.filePath -replace '^/', '') -replace '\\', '/'
         $lineNumber = [int]$finding.lineNumber
         $location   = $null
+
+        $contentSig = Get-FindingSignature -Finding $finding
+        if ($script:PostedContentSignatures.Contains($contentSig)) {
+            Write-Host "Skipping content-duplicate $Domain finding at $($filePath):$lineNumber"
+            continue
+        }
+        $dupNote = ''
+        $group = $sigGroups[$contentSig]
+        if ($group -and $group.Count -gt 1) {
+            $repKey = "$($filePath):$lineNumber"
+            $others = @($group |
+                ForEach-Object { "$((($_.filePath -replace '^/', '') -replace '\\', '/')):$([int]$_.lineNumber)" } |
+                Where-Object { $_ -ne $repKey } |
+                Select-Object -Unique)
+            if ($others.Count -gt 0) {
+                $shown = @($others | Select-Object -First 10)
+                $note = [System.Collections.Generic.List[string]]::new()
+                $note.Add('_The same issue occurs in identical code elsewhere (e.g. regional app copies); collapsed here to avoid duplicate comments. Also at:_') | Out-Null
+                foreach ($o in $shown) { $note.Add("- $o") | Out-Null }
+                if ($others.Count -gt $shown.Count) { $note.Add("- ...and $($others.Count - $shown.Count) more") | Out-Null }
+                $dupNote = ($note -join "`n")
+            }
+        }
 
         if (-not $ChangedFileSet.ContainsKey($filePath)) {
             Write-Host "Skipping $Domain finding for non-PR file: $filePath"
@@ -2073,6 +2135,7 @@ function Post-Findings {
         }
 
         $body = Build-CommentBody -Finding $finding -SuppressSuggestion:$suppressSuggestion
+        if ($dupNote) { $body = Add-CommentNotice -Body $body -Notice $dupNote }
 
         try {
             if ($location) {
@@ -2092,6 +2155,8 @@ function Post-Findings {
             $null = New-IssueComment -Body $fallbackBody
             $postedFallback++
         }
+
+        $script:PostedContentSignatures.Add($contentSig) | Out-Null
     }
 
     return [pscustomobject]@{ inline = $postedInline; fallback = $postedFallback }
