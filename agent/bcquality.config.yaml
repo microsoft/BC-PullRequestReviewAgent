@@ -28,6 +28,13 @@ bcquality:
   # advances (or switch to a release tag once BCQuality cuts releases).
   ref: 822cae1b2771ac25f665f73369f69093bd4fd630
 
+  # BCQuality content version this engine is pinned to, as major.minor. Its
+  # MINOR is Z in the engine's X.Y.Z version. BCQuality's minor is a monotonic
+  # counter that only ever increments — it never resets, even across a major
+  # bump — so Z is always unique. BCQuality bumps its minor ~monthly; set this
+  # together with `ref` above when moving to a new release.
+  version: "1.0"
+
 # Which BCQuality layers an agent may consume during this review.
 # Allowed values: microsoft, community, custom.
 # This Microsoft repo defaults to microsoft only — community and custom

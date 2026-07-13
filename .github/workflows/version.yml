@@ -1,14 +1,19 @@
-# Cuts a new engine version on every merge to main.
+# Publishes a PRReviewAgent version on merge to main, following the X.Y.Z scheme.
 #
-# Version format: v{major}.{minor}.{run_number}, where {major}.{minor} is the
-# base read from the repo-root VERSION file (bump it deliberately for a new
-# minor/major line) and {run_number} is this workflow's monotonically
-# increasing run counter (the "build" number). Each merge therefore produces a
-# fresh, pinnable version — consumers (BCApps, BC-Bench) pin `uses:`/`engine_ref`
-# to the tag instead of a raw SHA.
+# Version format: X.Y.Z
+#   X — Major. Breaking changes to the pipeline template contract. Fixed at 1.
+#   Y — Orchestrator. This repo's judges / orchestration / pipeline template.
+#       Read from the repo-root VERSION file (major.minor = X.Y). Bump the minor
+#       when orchestration evolves; bump the major for a breaking contract change.
+#   Z — BCQuality. The BCQuality content release this engine is pinned to, read
+#       from `bcquality.version` (major.minor) in agent/bcquality.config.yaml.
+#       BCQuality's minor is a monotonic counter (never reset), so Z is unique.
 #
-# Each run creates a lightweight git tag at the merged commit. GitHub Releases
-# (with notes) are cut manually for notable updates.
+# A version is cut only when X.Y.Z actually changes (Y or Z bumped); merges that
+# change neither produce no new release. Each release creates an immutable tag
+# `X.Y.Z` and force-moves the floating `latest` tag to it, so consumers pinning
+# `@latest` always run the version PRReviewAgent currently vouches for. `latest`
+# floats globally, across majors. Pin `@X.Y.Z` to reproduce or test a version.
 
 name: Version on merge
 
@@ -39,14 +44,41 @@ jobs:
         run: |
           base="$(tr -d ' \t\r\n' < VERSION)"
           if [[ ! "$base" =~ ^[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::VERSION must contain a 'major.minor' value (got: '$base')"
+            echo "::error::VERSION must contain a 'major.minor' value (X.Y) (got: '$base')"
             exit 1
           fi
-          version="v${base}.${{ github.run_number }}"
+          x="${base%%.*}"   # X — major
+          y="${base#*.}"    # Y — orchestrator
+
+          # Z — BCQuality: the MINOR of the `version: major.minor` line under
+          # `bcquality:` in the config, bumped with `ref` when BCQuality releases.
+          bcq_full="$(grep -E '^[[:space:]]*version:[[:space:]]*"?[0-9]+\.[0-9]+' agent/bcquality.config.yaml | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)"
+          if [[ -z "$bcq_full" ]]; then
+            echo "::error::agent/bcquality.config.yaml must contain a 'version: major.minor' under bcquality:"
+            exit 1
+          fi
+          z="${bcq_full#*.}"
+
+          version="${x}.${y}.${z}"
+          git fetch --tags --force --quiet
+          if git rev-parse -q --verify "refs/tags/${version}" >/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Version ${version} already tagged — no new release."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Computed engine version: $version"
+          echo "Computed PRReviewAgent version: $version"
 
       - name: Create and push tag
+        if: ${{ steps.version.outputs.exists == 'false' }}
         run: |
-          git tag "${{ steps.version.outputs.version }}" "${{ github.sha }}"
-          git push origin "${{ steps.version.outputs.version }}"
+          version="${{ steps.version.outputs.version }}"
+          git tag "$version" "${{ github.sha }}"
+          git push origin "$version"
+
+          # Floating `latest` tag: force-moved to each new release so consumers
+          # pinning `uses:@latest` always run the currently-vouched version.
+          # `latest` floats globally, across majors, by design.
+          git tag -f latest "${{ github.sha }}"
+          git push origin --force latest
