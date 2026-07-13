@@ -7,8 +7,10 @@
 # fresh, pinnable version — consumers (BCApps, BC-Bench) pin `uses:`/`engine_ref`
 # to the tag instead of a raw SHA.
 #
-# Each run creates a lightweight git tag at the merged commit. GitHub Releases
-# (with notes) are cut manually for notable updates.
+# Each run creates a lightweight git tag at the merged commit, and force-moves a
+# rolling major tag (e.g. v1) to it so consumers can pin `@v1` for the latest
+# compatible engine. GitHub Releases (with notes) are cut manually for notable
+# updates.
 
 name: Version on merge
 
@@ -44,9 +46,18 @@ jobs:
           fi
           version="v${base}.${{ github.run_number }}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "major=v${base%%.*}" >> "$GITHUB_OUTPUT"
           echo "Computed engine version: $version"
 
       - name: Create and push tag
         run: |
-          git tag "${{ steps.version.outputs.version }}" "${{ github.sha }}"
-          git push origin "${{ steps.version.outputs.version }}"
+          version="${{ steps.version.outputs.version }}"
+          major="${{ steps.version.outputs.major }}"
+          git tag "$version" "${{ github.sha }}"
+          git push origin "$version"
+
+          # Rolling major tag (e.g. v1): force-moved to each release so consumers
+          # can pin `uses:`/`engine_ref` to `@v1` and always get the latest
+          # compatible engine. Bump VERSION's major to start a v2 line.
+          git tag -f "$major" "${{ github.sha }}"
+          git push origin --force "$major"
