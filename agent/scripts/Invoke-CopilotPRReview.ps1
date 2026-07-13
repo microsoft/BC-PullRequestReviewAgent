@@ -550,6 +550,28 @@ function Test-OrderedSubsequence {
     return $true
 }
 
+# True when $A and $B contain the same lines (loose comparison) regardless of
+# order — i.e. one is a permutation of the other. Recognises a pure reordering
+# (e.g. sorted usings/namespaces) that can be applied in place without adding or
+# dropping any line.
+function Test-LooseMultisetEqual {
+    param([string[]] $A, [string[]] $B)
+
+    if ($A.Count -ne $B.Count) { return $false }
+    $bag = @{}
+    foreach ($a in $A) {
+        $k = ConvertTo-LooseLine $a
+        $bag[$k] = [int]$bag[$k] + 1
+    }
+    foreach ($b in $B) {
+        $k = ConvertTo-LooseLine $b
+        if (-not $bag.ContainsKey($k)) { return $false }
+        $bag[$k] = [int]$bag[$k] - 1
+        if ($bag[$k] -lt 0) { return $false }
+    }
+    return $true
+}
+
 # Resolve the RIGHT-side file span a suggestion should replace.
 # Returns @{ startLine; endLine } (1-based, inclusive) or $null when the
 # suggestion cannot be placed with confidence (caller drops the block).
@@ -606,6 +628,26 @@ function Resolve-SuggestionPlacement {
             if ($inserted -lt $bestInserted) {
                 $bestInserted = $inserted
                 $best = [pscustomobject]@{ startLine = $s; endLine = $e }
+            }
+        }
+    }
+
+    # --- Reorder fallback: the suggestion is the same set of lines as a nearby
+    # span, just reordered (e.g. sorting usings/namespaces). Replacing a span
+    # with a permutation of its own lines adds and drops nothing, so it is safe
+    # to apply as a one-click suggestion. Require an exact loose multiset match
+    # over a span of the same length; the additive search above takes priority,
+    # so this runs only when the shape is a genuine reordering, not an insert.
+    if (-not $best) {
+        $lo = [math]::Max(1, $AnchorLine - $sCount)
+        $hi = [math]::Min($fileCount - $sCount + 1, $AnchorLine + $sCount)
+        for ($s = $lo; $s -le $hi; $s++) {
+            $e = $s + $sCount - 1
+            if ($AnchorLine -lt ($s - 1) -or $AnchorLine -gt ($e + 1)) { continue }
+            $span = @($FileLines[($s - 1)..($e - 1)])
+            if (Test-LooseMultisetEqual -A $span -B $SuggestedLines) {
+                $best = [pscustomobject]@{ startLine = $s; endLine = $e }
+                break
             }
         }
     }
