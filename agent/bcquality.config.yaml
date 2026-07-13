@@ -28,6 +28,12 @@ bcquality:
   # advances (or switch to a release tag once BCQuality cuts releases).
   ref: 822cae1b2771ac25f665f73369f69093bd4fd630
 
+  # Monotonic BCQuality content version this engine is pinned to. Becomes the
+  # 3rd segment of the engine tag (v{major}.{minor}.{version}.{build}).
+  # BCQuality cuts a release ~monthly; bump this together with `ref` above when
+  # moving to a new BCQuality release.
+  version: 1
+
 # Which BCQuality layers an agent may consume during this review.
 # Allowed values: microsoft, community, custom.
 # This Microsoft repo defaults to microsoft only — community and custom
