@@ -100,6 +100,14 @@ BCQuality refs, findings without an emitted label fall back to the legacy
 unknown sub-skills fall back to **Other**. Agent findings retain an explicitly
 emitted domain; only unlabeled legacy agent findings use the **Agent** fallback.
 
+The shared DO schema keeps `domain` optional for legacy producers, but current
+BCQuality review leaves emit a non-empty short display label on every finding,
+including leaf agent findings. `al-code-review` preserves that optional value
+verbatim during rollup and does not derive or overwrite it from
+`from-sub-skill`; its own cross-cutting findings use exactly **Agent**.
+Accordingly, this consumer never replaces a present non-empty label. It consults
+the legacy map, then **Other**, only when the producer label is absent or empty.
+
 ### BCQuality dependency and rollout
 
 The reusable workflow accepts three levels of BCQuality configuration:

@@ -59,6 +59,14 @@ Describe 'Resolve-FindingDomain' {
             Should -Be 'Performance'
     }
 
+    It 'uses the legacy map when an explicit label is whitespace' {
+        $finding = [pscustomobject]@{
+            domain = "`t "
+            'from-sub-skill' = 'al-security-review'
+        }
+        Resolve-FindingDomain -Finding $finding | Should -Be 'Security'
+    }
+
     It 'falls back safely for missing and unusable labels' -ForEach @(
         @{ Explicit = $null }
         @{ Explicit = '' }
@@ -103,6 +111,25 @@ Describe 'Agent domain normalization' {
         } | ConvertTo-Json -Depth 8
 
         (Parse-BCQualityReport -Output $json).Findings[0].domain | Should -Be 'Agent'
+    }
+
+    It 'preserves the exact Agent label on a cross-cutting producer finding' {
+        $json = @{
+            outcome = 'completed'
+            findings = @(@{
+                id = 'agent:cross-cutting'
+                domain = 'Agent'
+                'from-sub-skill' = 'agent'
+                severity = 'major'
+                message = 'Issue'
+                location = @{ file = 'src/a.al'; line = 1 }
+                references = @()
+            })
+        } | ConvertTo-Json -Depth 8
+
+        $finding = (Parse-BCQualityReport -Output $json).Findings[0]
+        $finding.isAgentFinding | Should -BeTrue
+        $finding.domain | Should -BeExactly 'Agent'
     }
 }
 
