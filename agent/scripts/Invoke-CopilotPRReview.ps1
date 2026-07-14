@@ -1932,7 +1932,9 @@ function ConvertTo-MarkdownTableCell {
         Replace(')', '\)').
         Replace('#', '\#').
         Replace('!', '\!').
-        Replace('$', '&#36;')
+        Replace('$', '&#36;').
+        Replace('@', '&#64;').
+        Replace(':', '&#58;')
 }
 
 function Build-CommentBody {

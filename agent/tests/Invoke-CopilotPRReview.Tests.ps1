@@ -359,7 +359,7 @@ Describe 'Domain rendering safety' {
 
     It 'renders Markdown-active domain punctuation literally' {
         $finding = [pscustomobject]@{
-            domain = '$[API](//example) ~~C#~~!$'
+            domain = '$@[API](//example): ~~C#~~!$'
             severity = 'High'
             issue = ''
             recommendation = ''
@@ -369,7 +369,7 @@ Describe 'Domain rendering safety' {
         }
 
         Build-CommentBody -Finding $finding |
-            Should -Match '### High &#36;\\\[API\\\]\\\(//example\\\) \\\~\\\~C\\#\\\~\\\~\\!&#36; finding'
+            Should -Match '### High &#36;&#64;\\\[API\\\]\\\(//example\\\)&#58; \\\~\\\~C\\#\\\~\\\~\\!&#36; finding'
     }
 
     It 'shows agent provenance for an exact lowercase agent label' {
@@ -407,13 +407,13 @@ Describe 'Domain rendering safety' {
 
     It 'escapes markdown table separators, formatting, and HTML' {
         $summary = @{
-            'API | 100%_safe & <test> $math$' = @{
+            'API | 100%_safe & <test> $math$ @team :smile:' = @{
                 findings = 1; knowledgeBacked = 1; agentFindings = 0; inline = 1; fallback = 0
             }
         }
         $body = Build-SummaryBody -Outcome completed -OutcomeReason '' -DomainSummary $summary `
             -Suppressed @() -SkippedSubSkills @() -FilterReport $null
 
-        $body | Should -Match 'API \\\| 100%\\_safe &amp; &lt;test&gt; &#36;math&#36;'
+        $body | Should -Match 'API \\\| 100%\\_safe &amp; &lt;test&gt; &#36;math&#36; &#64;team &#58;smile&#58;'
     }
 }
