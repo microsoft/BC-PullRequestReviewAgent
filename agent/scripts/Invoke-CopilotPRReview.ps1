@@ -1931,7 +1931,8 @@ function ConvertTo-MarkdownTableCell {
         Replace('(', '\(').
         Replace(')', '\)').
         Replace('#', '\#').
-        Replace('!', '\!')
+        Replace('!', '\!').
+        Replace('$', '&#36;')
 }
 
 function Build-CommentBody {
