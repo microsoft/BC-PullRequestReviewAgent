@@ -387,6 +387,13 @@ Describe 'Domain rendering safety' {
             Should -Match 'Agent judgement — not directly backed'
     }
 
+    It 'preserves Unicode numeric entities while escaping Markdown' {
+        ConvertTo-MarkdownTableCell -Value ([string][char]0x00E9) |
+            Should -BeExactly '&#233;'
+        ConvertTo-MarkdownTableCell -Value "e$([char]0x0301)" |
+            Should -BeExactly "e$([char]0x0301)"
+    }
+
     It 'escapes domain labels in LaTeX comment preheaders' {
         $finding = [pscustomobject]@{
             domain = 'API | 100%_safe & C#'

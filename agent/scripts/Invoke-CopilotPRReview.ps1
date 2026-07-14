@@ -1919,8 +1919,7 @@ function ConvertTo-MarkdownTableCell {
     param([string] $Value)
 
     $singleLine = [regex]::Replace(($Value ?? ''), '[\r\n\t]+', ' ')
-    $encoded = [System.Net.WebUtility]::HtmlEncode($singleLine)
-    return $encoded.Replace('\', '\\').
+    $escaped = $singleLine.Replace('\', '\\').
         Replace('|', '\|').
         Replace('`', '\`').
         Replace('*', '\*').
@@ -1931,7 +1930,9 @@ function ConvertTo-MarkdownTableCell {
         Replace('(', '\(').
         Replace(')', '\)').
         Replace('#', '\#').
-        Replace('!', '\!').
+        Replace('!', '\!')
+    $encoded = [System.Net.WebUtility]::HtmlEncode($escaped)
+    return $encoded.
         Replace('$', '&#36;').
         Replace('@', '&#64;').
         Replace(':', '&#58;')
