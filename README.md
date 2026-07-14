@@ -61,13 +61,18 @@ automatically. To review a specific PR (e.g. from `workflow_dispatch`), pass
 
 ### Versioning
 
-Every merge to `main` cuts a new version `v{major}.{minor}.{build}`, where
-`{major}.{minor}` comes from the repo-root [`VERSION`](VERSION) file and
-`{build}` is an auto-incrementing build number. Each version is published as a
-git tag. Consumers should pin the `uses:` ref and `engine_ref` to a tag
-(e.g. `@v1.0.42`) rather than a raw commit SHA; bump the `VERSION` file to start
-a new minor/major line. GitHub Releases (with notes) are cut manually for
-notable updates.
+Engine tags use `X.Y.Z`. `X.Y` comes from the repo-root [`VERSION`](VERSION)
+file and identifies the orchestrator contract/implementation; `Z` is the
+monotonically increasing BCQuality content minor from
+`bcquality.version` in [`agent/bcquality.config.yaml`](agent/bcquality.config.yaml).
+After a merge to `main`, `.github/workflows/version.yml` creates an immutable
+`X.Y.Z` tag only when that version does not already exist, then force-moves the
+floating `latest` tag to the merge commit. A merge that changes neither
+`VERSION` nor `bcquality.version` does not publish a new tag or move `latest`.
+
+Consumers may pin an immutable tag for reproducibility or follow `@latest`.
+Keep the reusable workflow ref and its `engine_ref` input aligned so both jobs
+check out the same engine version.
 
 ### Inputs (selected)
 
@@ -94,6 +99,32 @@ BCQuality refs, findings without an emitted label fall back to the legacy
 `from-sub-skill`/`from_sub_skill` map in `Invoke-CopilotPRReview.ps1`, and
 unknown sub-skills fall back to **Other**. Agent findings retain an explicitly
 emitted domain; only unlabeled legacy agent findings use the **Agent** fallback.
+
+### BCQuality dependency and rollout
+
+The reusable workflow accepts three levels of BCQuality configuration:
+
+1. A caller-provided `config_path`, resolved from the target repository.
+2. Individual workflow inputs such as `bcquality_repo` and `bcquality_ref`,
+   which override the selected config through environment variables.
+3. When neither is supplied, the engine-owned
+   [`agent/bcquality.config.yaml`](agent/bcquality.config.yaml), whose
+   `bcquality.ref` is the reproducible source-of-truth pin.
+
+A BCQuality dependency update changes both `bcquality.ref` to a reviewed commit
+and `bcquality.version` to that content release. The latter changes `Z` in the
+engine's `X.Y.Z` tag, causing the version workflow to publish the newly vouched
+combination and move `latest`.
+
+For additive producer/consumer contract changes, roll out producer-first:
+
+1. Merge and release the BCQuality producer change.
+2. Merge and release the backward-compatible engine consumer change.
+3. Update `agent/bcquality.config.yaml` to the BCQuality release commit that
+   contains the producer change, update `bcquality.version` with it, and verify
+   the workflow's resolved `bcquality_sha` plus representative rendered output.
+
+Do not pin the engine to an unmerged BCQuality pull-request commit.
 
 ## Security model
 
