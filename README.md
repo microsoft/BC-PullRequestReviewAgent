@@ -84,6 +84,17 @@ BCQuality policy (`bcquality_repo`, `bcquality_ref`, `enabled_layers`,
 (`copilot_model`, `max_findings_per_domain`, `fail_on_parse_error`, …) can also
 be overridden per-input. See `.github/workflows/review.yml` for the full list.
 
+### Domain labels
+
+BCQuality owns each finding's human-readable `domain` label. The orchestrator
+prefers a non-empty `findings[].domain` value (and accepts PowerShell's
+capitalized `Domain` spelling), then renders and groups that label without
+maintaining a duplicate domain taxonomy. For compatibility with older
+BCQuality refs, findings without an emitted label fall back to the legacy
+`from-sub-skill`/`from_sub_skill` map in `Invoke-CopilotPRReview.ps1`, and
+unknown sub-skills fall back to **Other**. Agent findings retain an explicitly
+emitted domain; only unlabeled legacy agent findings use the **Agent** fallback.
+
 ## Security model
 
 * The **review** job is read-only. It runs the tool-enabled Copilot CLI over
