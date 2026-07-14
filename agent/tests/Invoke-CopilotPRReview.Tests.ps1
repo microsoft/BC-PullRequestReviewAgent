@@ -136,68 +136,194 @@ Describe 'Agent domain normalization' {
 Describe 'Domain metadata' {
     It 'round-trips a multi-word domain through collision-safe metadata' {
         $metadata = Get-AgentDomainMetadata -Domain 'Breaking Changes'
-        Get-CommentDomainMetadataKey -Body $metadata |
-            Should -Be (ConvertTo-DomainMetadataKey -Domain 'Breaking Changes')
+        $parsed = Get-CommentDomainMetadataKey -Body $metadata
+
+        $parsed.Kind | Should -BeExactly 'Exact'
+        $parsed.Key | Should -BeExactly (ConvertTo-DomainMetadataKey -Domain 'Breaking Changes')
     }
 
     It 'reads legacy single-token metadata' {
-        Get-CommentDomainMetadataKey -Body '<!-- agent_domain: security -->' |
-            Should -Be (ConvertTo-DomainMetadataKey -Domain 'Security')
+        $parsed = Get-CommentDomainMetadataKey -Body '<!-- agent_domain: security -->'
+
+        $parsed.Kind | Should -BeExactly 'Legacy'
+        $parsed.Key | Should -BeExactly 'security'
     }
 
-    It 'does not collide special-character or hyphen-equivalent labels' {
-        $labels = @('C#', 'C++', '!!!', '???', 'A-B', 'A B', 'A_B', 'Æ', 'AE')
-        $keys = @($labels | ForEach-Object { ConvertTo-DomainMetadataKey -Domain $_ })
-        ($keys | Select-Object -Unique).Count | Should -Be $labels.Count
+    It 'encodes exact trimmed UTF-8 labels without lossy transformations' {
+        $precomposed = [string][char]0x00E9
+        $decomposed = "e$([char]0x0301)"
+        $labels = @(
+            'API', 'api', $precomposed, $decomposed, 'A B', 'A  B',
+            'C#', 'C++', '!!!', '???', 'A-B', 'A_B', 'Æ', 'AE'
+        )
+        $keys = [System.Collections.Generic.HashSet[string]]::new(
+            [System.StringComparer]::Ordinal
+        )
+
+        foreach ($label in $labels) {
+            $keys.Add((ConvertTo-DomainMetadataKey -Domain $label)) | Should -BeTrue
+        }
+        $keys.Count | Should -Be $labels.Count
+        ConvertTo-DomainMetadataKey -Domain '  API  ' |
+            Should -BeExactly (ConvertTo-DomainMetadataKey -Domain 'API')
     }
 
-    It 'uses metadata to deduplicate only the matching domain across iterations' {
-        Mock Get-ReviewComments {
-            @([pscustomobject]@{
-                body = Get-AgentDomainMetadata -Domain 'Breaking Changes'
-                path = 'src/a.al'
+    It 'deduplicates exact metadata by case, Unicode representation, whitespace, and punctuation' {
+        $precomposed = [string][char]0x00E9
+        $decomposed = "e$([char]0x0301)"
+        $cases = @(
+            @{ Label = 'API'; Path = 'src/1.al' }
+            @{ Label = 'api'; Path = 'src/2.al' }
+            @{ Label = $precomposed; Path = 'src/3.al' }
+            @{ Label = $decomposed; Path = 'src/4.al' }
+            @{ Label = 'A B'; Path = 'src/5.al' }
+            @{ Label = 'A  B'; Path = 'src/6.al' }
+            @{ Label = 'C#'; Path = 'src/7.al' }
+            @{ Label = 'C++'; Path = 'src/8.al' }
+            @{ Label = '!!!'; Path = 'src/9.al' }
+            @{ Label = '???'; Path = 'src/10.al' }
+        )
+        $script:DomainComments = @($cases | ForEach-Object {
+            [pscustomobject]@{
+                body = Get-AgentDomainMetadata -Domain $_.Label
+                path = $_.Path
                 line = 10
                 side = 'RIGHT'
-            })
+            }
+        })
+        Mock Get-ReviewComments {
+            $script:DomainComments
         }
 
-        (Get-ExistingCommentKeys -Domain 'Breaking Changes').Keys.Contains('src/a.al:10:RIGHT') |
-            Should -BeTrue
-        (Get-ExistingCommentKeys -Domain 'Breaking-Changes').Keys.Count |
-            Should -Be 0
+        foreach ($case in $cases) {
+            $existing = Get-ExistingCommentKeys -Domain $case.Label
+            $existing.Keys.Count | Should -Be 1
+            $existing.Keys.Contains("$($case.Path):10:RIGHT") | Should -BeTrue
+        }
+    }
+
+    It 'keeps legacy lowercase matching separate from new exact matching' {
+        $script:DomainComments = @(
+            [pscustomobject]@{
+                body = '<!-- agent_domain: security -->'
+                path = 'src/legacy.al'; line = 1; side = 'RIGHT'
+            },
+            [pscustomobject]@{
+                body = Get-AgentDomainMetadata -Domain 'security'
+                path = 'src/exact.al'; line = 2; side = 'RIGHT'
+            }
+        )
+        Mock Get-ReviewComments { $script:DomainComments }
+
+        $capitalized = Get-ExistingCommentKeys -Domain 'Security'
+        $capitalized.Keys.Count | Should -Be 1
+        $capitalized.Keys.Contains('src/legacy.al:1:RIGHT') | Should -BeTrue
+        $capitalized.Keys.Contains('src/exact.al:2:RIGHT') | Should -BeFalse
+
+        (Get-ExistingCommentKeys -Domain 'security').Keys.Count | Should -Be 2
+    }
+
+    It 'reads both legacy single-token heading formats' {
+        $script:DomainComments = @(
+            [pscustomobject]@{
+                body = '### High Security - issue'
+                path = 'src/new-heading.al'; line = 1; side = 'RIGHT'
+            },
+            [pscustomobject]@{
+                body = '### Security - High Severity'
+                path = 'src/old-heading.al'; line = 2; side = 'RIGHT'
+            }
+        )
+        Mock Get-ReviewComments { $script:DomainComments }
+
+        (Get-ExistingCommentKeys -Domain 'Security').Keys.Count | Should -Be 2
     }
 }
 
 Describe 'Domain grouping and caps' {
-    It 'caps distinct special-character domains independently' {
+    It 'caps exact domain labels independently' {
         $MaxFindings = 1
         try {
+            $precomposed = [string][char]0x00E9
+            $decomposed = "e$([char]0x0301)"
+            $labels = @('API', 'api', $precomposed, $decomposed, 'A B', 'A  B', 'C#', 'C++')
+            $rawFindings = [System.Collections.Generic.List[object]]::new()
+            $line = 0
+            foreach ($label in $labels) {
+                $line++
+                $rawFindings.Add(@{
+                    id = "high-$line"; domain = $label; severity = 'major'; message = 'First'
+                    location = @{ file = 'src/a.al'; line = $line }; references = @()
+                }) | Out-Null
+                $line++
+                $rawFindings.Add(@{
+                    id = "medium-$line"; domain = $label; severity = 'minor'; message = 'Second'
+                    location = @{ file = 'src/a.al'; line = $line }; references = @()
+                }) | Out-Null
+            }
             $json = @{
                 outcome = 'completed'
-                findings = @(
-                    @{
-                        id = 'csharp-1'; domain = 'C#'; severity = 'major'; message = 'First'
-                        location = @{ file = 'src/a.al'; line = 1 }; references = @()
-                    },
-                    @{
-                        id = 'csharp-2'; domain = 'C#'; severity = 'minor'; message = 'Second'
-                        location = @{ file = 'src/a.al'; line = 2 }; references = @()
-                    },
-                    @{
-                        id = 'cplusplus'; domain = 'C++'; severity = 'minor'; message = 'Third'
-                        location = @{ file = 'src/a.al'; line = 3 }; references = @()
-                    }
-                )
+                findings = @($rawFindings)
             } | ConvertTo-Json -Depth 8
 
             $findings = (Parse-BCQualityReport -Output $json).Findings
-            $findings.Count | Should -Be 2
-            @($findings.domain | Sort-Object) | Should -Be @('C#', 'C++')
-            ($findings | Where-Object domain -eq 'C#').severity | Should -Be 'High'
+            $findings.Count | Should -Be $labels.Count
+            foreach ($label in $labels) {
+                $domainFindings = @($findings | Where-Object {
+                    [System.StringComparer]::Ordinal.Equals($_.domain, $label)
+                })
+                $domainFindings.Count | Should -Be 1
+                $domainFindings[0].severity | Should -BeExactly 'High'
+            }
         }
         finally {
             $MaxFindings = 25
         }
+    }
+
+    It 'keeps exact labels distinct through posting collections and summaries' {
+        $precomposed = [string][char]0x00E9
+        $decomposed = "e$([char]0x0301)"
+        $labels = @('API', 'api', $precomposed, $decomposed, 'A B', 'A  B', 'C#', 'C++')
+        $findings = @($labels | ForEach-Object {
+            [pscustomobject]@{ domain = $_; isAgentFinding = $false }
+        })
+        Mock Post-Findings {
+            [pscustomobject]@{ inline = $Findings.Count; fallback = 0 }
+        }
+
+        $summary = Post-FindingsByDomain -Findings $findings -LineMaps @{} -ChangedFileSet @{}
+        $summary.Count | Should -Be $labels.Count
+        foreach ($label in $labels) {
+            $summary.ContainsKey($label) | Should -BeTrue
+            $summary[$label].findings | Should -Be 1
+            Should -Invoke Post-Findings -Times 1 -ParameterFilter { $Domain -ceq $label }
+        }
+
+        $body = Build-SummaryBody -Outcome completed -OutcomeReason '' -DomainSummary $summary `
+            -Suppressed @() -SkippedSubSkills @() -FilterReport $null
+        foreach ($label in $labels) {
+            $safeLabel = ConvertTo-MarkdownTableCell -Value $label
+            $body.Contains("| $safeLabel | 1 | 1 | 0 | 1 | 0 |") |
+                Should -BeTrue -Because "the summary must contain the exact '$label' label"
+        }
+    }
+
+    It 'keeps consumed-skill fallback domains distinct' {
+        $report = [pscustomobject]@{
+            SubResults = @()
+            Findings = @(
+                [pscustomobject]@{ domain = 'API'; references = @() },
+                [pscustomobject]@{ domain = 'api'; references = @() }
+            )
+        }
+        Mock Write-Host {}
+
+        Write-ConsumedBCQualityLog -Report $report
+
+        Should -Invoke Write-Host -Times 1 -ParameterFilter { $Object -eq 'Sub-skills executed (2):' }
+        Should -Invoke Write-Host -Times 1 -ParameterFilter { $Object -eq '  - API (findings=1)' }
+        Should -Invoke Write-Host -Times 1 -ParameterFilter { $Object -eq '  - api (findings=1)' }
     }
 }
 

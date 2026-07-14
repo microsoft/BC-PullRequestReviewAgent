@@ -107,6 +107,10 @@ verbatim during rollup and does not derive or overwrite it from
 `from-sub-skill`; its own cross-cutting findings use exactly **Agent**.
 Accordingly, this consumer never replaces a present non-empty label. It consults
 the legacy map, then **Other**, only when the producer label is absent or empty.
+After outer whitespace is trimmed, domain identity is otherwise lossless:
+internal whitespace, punctuation, case, and Unicode representation remain
+significant. New comment metadata encodes those exact UTF-8 bytes; only legacy
+single-token metadata and headings use a separate lowercase compatibility path.
 
 ### BCQuality dependency and rollout
 
