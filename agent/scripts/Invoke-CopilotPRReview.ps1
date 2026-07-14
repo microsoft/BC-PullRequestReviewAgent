@@ -1920,7 +1920,18 @@ function ConvertTo-MarkdownTableCell {
 
     $singleLine = [regex]::Replace(($Value ?? ''), '[\r\n\t]+', ' ')
     $encoded = [System.Net.WebUtility]::HtmlEncode($singleLine)
-    return $encoded.Replace('\', '\\').Replace('|', '\|').Replace('`', '\`').Replace('*', '\*').Replace('_', '\_')
+    return $encoded.Replace('\', '\\').
+        Replace('|', '\|').
+        Replace('`', '\`').
+        Replace('*', '\*').
+        Replace('_', '\_').
+        Replace('~', '\~').
+        Replace('[', '\[').
+        Replace(']', '\]').
+        Replace('(', '\(').
+        Replace(')', '\)').
+        Replace('#', '\#').
+        Replace('!', '\!')
 }
 
 function Build-CommentBody {
@@ -1993,7 +2004,7 @@ function Build-CommentBody {
             if (-not $ref.path) { continue }
             $lines.Add("- $(Build-ReferenceLink -Reference $ref)") | Out-Null
         }
-    } elseif ($isAgentFinding -and $domain -ne 'Agent') {
+    } elseif ($isAgentFinding -and $domain -cne 'Agent') {
         # Distinguish agent-judgement findings from knowledge-backed ones so
         # the reader can tell which bucket this falls into, without
         # undermining a finding that may still be high-confidence and

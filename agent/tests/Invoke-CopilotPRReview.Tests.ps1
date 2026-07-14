@@ -344,6 +344,36 @@ Describe 'Domain rendering safety' {
         Build-CommentBody -Finding $finding | Should -Match '### High API finding'
     }
 
+    It 'renders Markdown-active domain punctuation literally' {
+        $finding = [pscustomobject]@{
+            domain = '[API](//example) ~~C#~~!'
+            severity = 'High'
+            issue = ''
+            recommendation = ''
+            suggestedCode = ''
+            references = @()
+            isAgentFinding = $false
+        }
+
+        Build-CommentBody -Finding $finding |
+            Should -Match '### High \\\[API\\\]\\\(//example\\\) \\\~\\\~C\\#\\\~\\\~\\! finding'
+    }
+
+    It 'shows agent provenance for an exact lowercase agent label' {
+        $finding = [pscustomobject]@{
+            domain = 'agent'
+            severity = 'High'
+            issue = 'Review judgement.'
+            recommendation = ''
+            suggestedCode = ''
+            references = @()
+            isAgentFinding = $true
+        }
+
+        Build-CommentBody -Finding $finding |
+            Should -Match 'Agent judgement — not directly backed'
+    }
+
     It 'escapes domain labels in LaTeX comment preheaders' {
         $finding = [pscustomobject]@{
             domain = 'API | 100%_safe & C#'
