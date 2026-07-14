@@ -179,6 +179,8 @@ Describe 'Domain metadata' {
         $keys.Count | Should -Be $labels.Count
         ConvertTo-DomainMetadataKey -Domain '  API  ' |
             Should -BeExactly (ConvertTo-DomainMetadataKey -Domain 'API')
+        ConvertTo-DomainMetadataKey -Domain 'A B' |
+            Should -Not -BeExactly (ConvertTo-DomainMetadataKey -Domain 'A  B')
     }
 
     It 'deduplicates exact metadata by case, Unicode representation, whitespace, and punctuation' {
@@ -247,6 +249,15 @@ Describe 'Domain metadata' {
 
         (Get-ExistingCommentKeys -Domain 'security').Keys.Count | Should -Be 1
         (Get-ExistingCommentKeys -Domain 'Security').Keys.Count | Should -Be 0
+
+        $script:DomainComments = @(
+            [pscustomobject]@{
+                body = Get-AgentDomainMetadata -Domain 'Security'
+                path = 'src/exact-case.al'; line = 3; side = 'RIGHT'
+            }
+        )
+        (Get-ExistingCommentKeys -Domain 'Security').Keys.Contains('src/exact-case.al:3:RIGHT') |
+            Should -BeTrue
     }
 
     It 'reads both legacy single-token heading formats' {
