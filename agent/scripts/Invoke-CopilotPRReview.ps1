@@ -956,7 +956,7 @@ function Get-ExplicitFindingDomain {
     return $null
 }
 
-function Get-OrdinalSortedDomainLabels {
+function Get-OrdinalSortedDomainLabel {
     param([System.Collections.IEnumerable] $Labels)
 
     [string[]]$sorted = @($Labels | ForEach-Object { [string]$_ })
@@ -1548,7 +1548,7 @@ function Parse-BCQualityReport {
         $byDomain[$f.domain].Add($f) | Out-Null
     }
     $capped = [System.Collections.Generic.List[object]]::new()
-    foreach ($d in (Get-OrdinalSortedDomainLabels -Labels $byDomain.Keys)) {
+    foreach ($d in (Get-OrdinalSortedDomainLabel -Labels $byDomain.Keys)) {
         $sorted = $byDomain[$d] |
             Sort-Object @{Expression = { $SeverityOrder[$_.severity] }}, filePath, lineNumber |
             Select-Object -First $MaxFindings
@@ -2009,7 +2009,7 @@ function Add-CommentNotice {
 # ---------------------------------------------------------------------------
 # Duplicate detection
 # ---------------------------------------------------------------------------
-function Get-CommentDomainMetadata {
+function Resolve-CommentDomainIdentity {
     param([string] $Body)
 
     $bodyValue = $Body ?? ''
@@ -2036,7 +2036,7 @@ function Get-CommentDomainMetadata {
 function Get-CommentDomainMetadataKey {
     param([string] $Body)
 
-    $metadata = Get-CommentDomainMetadata -Body $Body
+    $metadata = Resolve-CommentDomainIdentity -Body $Body
     if (-not $metadata) { return $null }
     if ($metadata.Kind -eq 'ExactKey') { return $metadata.Value }
     return ConvertTo-DomainMetadataKey -Domain $metadata.Value
@@ -2045,7 +2045,7 @@ function Get-CommentDomainMetadataKey {
 function Test-CommentDomainMatch {
     param([string] $Body, [string] $Domain)
 
-    $metadata = Get-CommentDomainMetadata -Body $Body
+    $metadata = Resolve-CommentDomainIdentity -Body $Body
     if (-not $metadata) { return $false }
 
     if ($metadata.Kind -eq 'ExactKey') {
@@ -2274,7 +2274,7 @@ function Build-SummaryBody {
         $lines.Add('|---|---:|---:|---:|---:|---:|') | Out-Null
         $totalBacked = 0
         $totalAgent  = 0
-        foreach ($d in (Get-OrdinalSortedDomainLabels -Labels $DomainSummary.Keys)) {
+        foreach ($d in (Get-OrdinalSortedDomainLabel -Labels $DomainSummary.Keys)) {
             $entry = $DomainSummary[$d]
             $backed = if ($entry.ContainsKey('knowledgeBacked')) { [int]$entry.knowledgeBacked } else { [int]$entry.findings }
             $agent  = if ($entry.ContainsKey('agentFindings'))   { [int]$entry.agentFindings }   else { 0 }
@@ -2369,7 +2369,7 @@ function Write-FindingsBreakdown {
     Write-LogPhaseDetail "By severity: $sevLine"
     Write-LogPhaseDetail "By origin:   knowledge-backed: $backed  agent: $agent"
     if ($domains.Count -gt 0) {
-        $domainLine = (Get-OrdinalSortedDomainLabels -Labels $domains.Keys |
+        $domainLine = (Get-OrdinalSortedDomainLabel -Labels $domains.Keys |
             ForEach-Object { "$($_): $($domains[$_])" }) -join '  '
         Write-LogPhaseDetail "By domain:   $domainLine"
     }
@@ -2766,7 +2766,7 @@ if ($shouldPostFindings -and $report.Findings.Count -gt 0) {
         $findingsByDomain[$d].Add($finding) | Out-Null
     }
 
-    foreach ($d in (Get-OrdinalSortedDomainLabels -Labels $findingsByDomain.Keys)) {
+    foreach ($d in (Get-OrdinalSortedDomainLabel -Labels $findingsByDomain.Keys)) {
         $df = @($findingsByDomain[$d])
         Write-Host "Posting $($df.Count) $d finding(s)…"
         $posted = Post-Findings -Domain $d -Findings $df -LineMaps $lineMaps -ChangedFileSet $changedFileSet

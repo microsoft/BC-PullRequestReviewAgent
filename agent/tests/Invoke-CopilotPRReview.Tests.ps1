@@ -1,3 +1,10 @@
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+    'PSUseDeclaredVarsMoreThanAssignments',
+    '',
+    Justification = 'The imported functions resolve these test fixtures through PowerShell dynamic scope.'
+)]
+param()
+
 BeforeAll {
     $scriptPath = Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts') 'Invoke-CopilotPRReview.ps1'
     $tokens = $null
@@ -15,7 +22,8 @@ BeforeAll {
         param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
     }, $true) | ForEach-Object {
-        Invoke-Expression $_.Extent.Text
+        $functionDefinition = [scriptblock]::Create($_.Extent.Text)
+        . $functionDefinition
     }
 
     $DomainMap = @{
@@ -36,6 +44,9 @@ BeforeAll {
     $AgentCommentDocUrl = 'https://example.test/review'
     $BCQualitySha = ''
     $script:BCQualityWebRepoUrl = 'https://github.com/microsoft/BCQuality'
+    $NonAsciiDomain = "S$([char]0x00E9)curit$([char]0x00E9)"
+    $ComposedDomain = "Caf$([char]0x00E9)"
+    $DecomposedDomain = "Cafe$([char]0x0301)"
 }
 
 Describe 'Resolve-FindingDomain' {
@@ -136,7 +147,7 @@ Describe 'Agent domain normalization' {
 Describe 'Domain metadata' {
     It 'round-trips a multi-word domain through collision-safe metadata' {
         $metadata = Get-AgentDomainMetadata -Domain 'Breaking Changes'
-        $parsed = Get-CommentDomainMetadata -Body $metadata
+        $parsed = Resolve-CommentDomainIdentity -Body $metadata
 
         $parsed.Kind | Should -BeExactly 'ExactKey'
         Get-CommentDomainMetadataKey -Body $metadata |
@@ -145,13 +156,12 @@ Describe 'Domain metadata' {
 
     It 'reads legacy single-token metadata' {
         $metadata = '<!-- agent_domain: security -->'
-        (Get-CommentDomainMetadata -Body $metadata).Kind | Should -BeExactly 'LegacyLabel'
+        (Resolve-CommentDomainIdentity -Body $metadata).Kind | Should -BeExactly 'LegacyLabel'
         Get-CommentDomainMetadataKey -Body $metadata |
             Should -Be (ConvertTo-DomainMetadataKey -Domain 'security')
     }
 
     It 'does not collide special-character or hyphen-equivalent labels' {
-        $decomposed = "Cafe$([char]0x0301)"
         $labels = @(
             'Breaking Changes',
             'API & Web Services',
@@ -167,9 +177,9 @@ Describe 'Domain metadata' {
             'A-B',
             'A B',
             'A_B',
-            'Sécurité',
-            'Café',
-            $decomposed,
+            $NonAsciiDomain,
+            $ComposedDomain,
+            $DecomposedDomain,
             'Security',
             'security'
         )
@@ -236,7 +246,7 @@ Describe 'Domain grouping and caps' {
                         location = @{ file = 'src/a.al'; line = 5 }; references = @()
                     },
                     @{
-                        id = 'unicode'; domain = 'Sécurité'; severity = 'minor'; message = 'Sixth'
+                        id = 'unicode'; domain = $NonAsciiDomain; severity = 'minor'; message = 'Sixth'
                         location = @{ file = 'src/a.al'; line = 6 }; references = @()
                     },
                     @{
@@ -256,11 +266,11 @@ Describe 'Domain grouping and caps' {
                         location = @{ file = 'src/a.al'; line = 10 }; references = @()
                     },
                     @{
-                        id = 'composed'; domain = 'Café'; severity = 'minor'; message = 'Eleventh'
+                        id = 'composed'; domain = $ComposedDomain; severity = 'minor'; message = 'Eleventh'
                         location = @{ file = 'src/a.al'; line = 11 }; references = @()
                     },
                     @{
-                        id = 'decomposed'; domain = "Cafe$([char]0x0301)"; severity = 'minor'; message = 'Twelfth'
+                        id = 'decomposed'; domain = $DecomposedDomain; severity = 'minor'; message = 'Twelfth'
                         location = @{ file = 'src/a.al'; line = 12 }; references = @()
                     }
                 )
@@ -268,18 +278,18 @@ Describe 'Domain grouping and caps' {
 
             $findings = (Parse-BCQualityReport -Output $json).Findings
             $findings.Count | Should -Be 11
-            @(Get-OrdinalSortedDomainLabels -Labels $findings.domain) |
+            @(Get-OrdinalSortedDomainLabel -Labels $findings.domain) |
                 Should -Contain 'API'
-            @(Get-OrdinalSortedDomainLabels -Labels $findings.domain) |
+            @(Get-OrdinalSortedDomainLabel -Labels $findings.domain) |
                 Should -Contain 'api'
-            @(Get-OrdinalSortedDomainLabels -Labels $findings.domain) |
+            @(Get-OrdinalSortedDomainLabel -Labels $findings.domain) |
                 Should -Contain 'API Web Services'
-            @(Get-OrdinalSortedDomainLabels -Labels $findings.domain) |
+            @(Get-OrdinalSortedDomainLabel -Labels $findings.domain) |
                 Should -Contain 'API  Web Services'
-            @(Get-OrdinalSortedDomainLabels -Labels $findings.domain) |
-                Should -Contain 'Café'
-            @(Get-OrdinalSortedDomainLabels -Labels $findings.domain) |
-                Should -Contain "Cafe$([char]0x0301)"
+            @(Get-OrdinalSortedDomainLabel -Labels $findings.domain) |
+                Should -Contain $ComposedDomain
+            @(Get-OrdinalSortedDomainLabel -Labels $findings.domain) |
+                Should -Contain $DecomposedDomain
             ($findings | Where-Object domain -CEQ 'API & Web Services').severity | Should -Be 'High'
         }
         finally {
