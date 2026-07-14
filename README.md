@@ -91,10 +91,14 @@ be overridden per-input. See `.github/workflows/review.yml` for the full list.
 
 ### Domain labels
 
-BCQuality owns each finding's human-readable `domain` label. The orchestrator
-prefers a non-empty `findings[].domain` value (and accepts PowerShell's
-capitalized `Domain` spelling), then renders and groups that label without
-maintaining a duplicate domain taxonomy. For compatibility with older
+BCQuality owns each finding's human-readable `domain` label. Labels are
+non-empty, trimmed, single-line strings without control characters; internal
+whitespace, punctuation, case, and non-ASCII characters are significant. The
+orchestrator prefers a non-empty `findings[].domain` value (and accepts
+PowerShell's capitalized `Domain` spelling), then preserves that exact label
+for display, grouping, and per-domain caps without maintaining a duplicate
+domain taxonomy. Escaping occurs only at output-syntax boundaries. For
+compatibility with older
 BCQuality refs, findings without an emitted label fall back to the legacy
 `from-sub-skill`/`from_sub_skill` map in `Invoke-CopilotPRReview.ps1`, and
 unknown sub-skills fall back to **Other**. Agent findings retain an explicitly
@@ -107,6 +111,9 @@ verbatim during rollup and does not derive or overwrite it from
 `from-sub-skill`; its own cross-cutting findings use exactly **Agent**.
 Accordingly, this consumer never replaces a present non-empty label. It consults
 the legacy map, then **Other**, only when the producer label is absent or empty.
+New comments carry a lossless base64url UTF-8 metadata key for exact dedup
+identity; display headings are not parsed for new metadata. Legacy metadata and
+heading parsing remain supported for comments produced by older engine versions.
 
 ### BCQuality dependency and rollout
 

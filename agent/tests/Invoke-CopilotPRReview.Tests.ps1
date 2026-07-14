@@ -142,11 +142,25 @@ Describe 'Domain metadata' {
 
     It 'reads legacy single-token metadata' {
         Get-CommentDomainMetadataKey -Body '<!-- agent_domain: security -->' |
-            Should -Be (ConvertTo-DomainMetadataKey -Domain 'Security')
+            Should -Be (ConvertTo-DomainMetadataKey -Domain 'security')
     }
 
     It 'does not collide special-character or hyphen-equivalent labels' {
-        $labels = @('C#', 'C++', '!!!', '???', 'A-B', 'A B', 'A_B', 'Æ', 'AE')
+        $labels = @(
+            'Breaking Changes',
+            'API & Web Services',
+            'API/Web Services',
+            'C#',
+            'C++',
+            '!!!',
+            '???',
+            'A-B',
+            'A B',
+            'A_B',
+            'Sécurité',
+            'Security',
+            'security'
+        )
         $keys = @($labels | ForEach-Object { ConvertTo-DomainMetadataKey -Domain $_ })
         ($keys | Select-Object -Unique).Count | Should -Be $labels.Count
     }
@@ -166,34 +180,61 @@ Describe 'Domain metadata' {
         (Get-ExistingCommentKeys -Domain 'Breaking-Changes').Keys.Count |
             Should -Be 0
     }
+
+    It 'matches legacy single-token metadata case-insensitively' {
+        Mock Get-ReviewComments {
+            @([pscustomobject]@{
+                body = '<!-- agent_domain: security -->'
+                path = 'src/a.al'
+                line = 11
+                side = 'RIGHT'
+            })
+        }
+
+        (Get-ExistingCommentKeys -Domain 'Security').Keys.Contains('src/a.al:11:RIGHT') |
+            Should -BeTrue
+    }
 }
 
 Describe 'Domain grouping and caps' {
-    It 'caps distinct special-character domains independently' {
+    It 'caps exact display-label identities independently' {
         $MaxFindings = 1
         try {
             $json = @{
                 outcome = 'completed'
                 findings = @(
                     @{
-                        id = 'csharp-1'; domain = 'C#'; severity = 'major'; message = 'First'
+                        id = 'amp-1'; domain = 'API & Web Services'; severity = 'major'; message = 'First'
                         location = @{ file = 'src/a.al'; line = 1 }; references = @()
                     },
                     @{
-                        id = 'csharp-2'; domain = 'C#'; severity = 'minor'; message = 'Second'
+                        id = 'amp-2'; domain = 'API & Web Services'; severity = 'minor'; message = 'Second'
                         location = @{ file = 'src/a.al'; line = 2 }; references = @()
                     },
                     @{
-                        id = 'cplusplus'; domain = 'C++'; severity = 'minor'; message = 'Third'
+                        id = 'slash'; domain = 'API/Web Services'; severity = 'minor'; message = 'Third'
                         location = @{ file = 'src/a.al'; line = 3 }; references = @()
+                    },
+                    @{
+                        id = 'upper'; domain = 'Security'; severity = 'minor'; message = 'Fourth'
+                        location = @{ file = 'src/a.al'; line = 4 }; references = @()
+                    },
+                    @{
+                        id = 'lower'; domain = 'security'; severity = 'minor'; message = 'Fifth'
+                        location = @{ file = 'src/a.al'; line = 5 }; references = @()
+                    },
+                    @{
+                        id = 'unicode'; domain = 'Sécurité'; severity = 'minor'; message = 'Sixth'
+                        location = @{ file = 'src/a.al'; line = 6 }; references = @()
                     }
                 )
             } | ConvertTo-Json -Depth 8
 
             $findings = (Parse-BCQualityReport -Output $json).Findings
-            $findings.Count | Should -Be 2
-            @($findings.domain | Sort-Object) | Should -Be @('C#', 'C++')
-            ($findings | Where-Object domain -eq 'C#').severity | Should -Be 'High'
+            $findings.Count | Should -Be 5
+            @(Get-OrdinalSortedDomainLabels -Labels $findings.domain) |
+                Should -Be @('API & Web Services', 'API/Web Services', 'Security', 'Sécurité', 'security')
+            ($findings | Where-Object domain -CEQ 'API & Web Services').severity | Should -Be 'High'
         }
         finally {
             $MaxFindings = 25

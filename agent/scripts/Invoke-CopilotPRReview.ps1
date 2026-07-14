@@ -956,6 +956,14 @@ function Get-ExplicitFindingDomain {
     return $null
 }
 
+function Get-OrdinalSortedDomainLabels {
+    param([System.Collections.IEnumerable] $Labels)
+
+    [string[]]$sorted = @($Labels | ForEach-Object { [string]$_ })
+    [Array]::Sort($sorted, [System.StringComparer]::Ordinal)
+    return $sorted
+}
+
 function Resolve-FindingDomain {
     param([object] $Finding)
 
@@ -1532,13 +1540,15 @@ function Parse-BCQualityReport {
     $subResultCount = $subResults.Count
 
     # Per-domain cap, then global sort.
-    $byDomain = @{}
+    $byDomain = [System.Collections.Generic.Dictionary[string, System.Collections.Generic.List[object]]]::new(
+        [System.StringComparer]::Ordinal
+    )
     foreach ($f in $normalized) {
         if (-not $byDomain.ContainsKey($f.domain)) { $byDomain[$f.domain] = [System.Collections.Generic.List[object]]::new() }
         $byDomain[$f.domain].Add($f) | Out-Null
     }
     $capped = [System.Collections.Generic.List[object]]::new()
-    foreach ($d in $byDomain.Keys) {
+    foreach ($d in (Get-OrdinalSortedDomainLabels -Labels $byDomain.Keys)) {
         $sorted = $byDomain[$d] |
             Sort-Object @{Expression = { $SeverityOrder[$_.severity] }}, filePath, lineNumber |
             Select-Object -First $MaxFindings
@@ -1589,7 +1599,7 @@ function Write-ConsumedBCQualityLog {
 
     # Aggregate per-skill data from SubResults; fall back to from-sub-skill on
     # findings when the super-skill did not return sub-results[].
-    $skillMap = [ordered]@{}
+    $skillMap = [System.Collections.Specialized.OrderedDictionary]::new([System.StringComparer]::Ordinal)
     foreach ($sr in $subResults) {
         if ($null -eq $sr) { continue }
         $sid = if ($sr.id) { [string]$sr.id } else { '(unknown)' }
@@ -1786,8 +1796,7 @@ function ConvertTo-DomainMetadataKey {
     param([string] $Domain)
 
     if ([string]::IsNullOrWhiteSpace($Domain)) { return '' }
-    $normalized = $Domain.Trim().Normalize([System.Text.NormalizationForm]::FormC).ToLowerInvariant()
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($normalized)
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($Domain)
     return [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
 }
 
@@ -2024,17 +2033,40 @@ function Get-CommentDomainMetadataKey {
     return $null
 }
 
+function Test-CommentDomainMatch {
+    param([string] $Body, [string] $Domain)
+
+    $bodyValue = $Body ?? ''
+    if ($bodyValue -match '<!-- agent_domain_key:\s*([A-Za-z0-9_-]+)\s*-->') {
+        return $Matches[1] -ceq (ConvertTo-DomainMetadataKey -Domain $Domain)
+    }
+
+    # Legacy metadata and headings stored display-derived single-token values.
+    # Preserve their historical case-insensitive comparison without weakening
+    # the exact identity used by newly emitted metadata.
+    if ($bodyValue -match '<!-- agent_domain:\s*([a-z0-9_-]+)\s*-->') {
+        return [string]::Equals($Matches[1], $Domain, [System.StringComparison]::OrdinalIgnoreCase)
+    }
+
+    $newHeadingPattern = '^#{1,6}\s+(?:🔴|🟠|🟡|🟢|⚪)?\s*(Critical|High|Medium|Low)\s+([^\r\n]+?)\s+-'
+    $oldHeadingPattern = '^#{1,6}\s+([^\r\n]+?)\s+-\s+(Critical|High|Medium|Low)\s+Severity'
+    if ($bodyValue -match $newHeadingPattern) {
+        return [string]::Equals($Matches[2], $Domain, [System.StringComparison]::OrdinalIgnoreCase)
+    }
+    if ($bodyValue -match $oldHeadingPattern) {
+        return [string]::Equals($Matches[1], $Domain, [System.StringComparison]::OrdinalIgnoreCase)
+    }
+    return $false
+}
+
 function Get-ExistingCommentKeys {
     param([string] $Domain)
 
     $keys = [System.Collections.Generic.HashSet[string]]::new()
     $locations = [System.Collections.Generic.List[object]]::new()
-    $targetDomainKey = ConvertTo-DomainMetadataKey -Domain $Domain
-
     foreach ($comment in (Get-ReviewComments)) {
         $body = $comment.body ?? ''
-        $commentDomainKey = Get-CommentDomainMetadataKey -Body $body
-        if ($commentDomainKey -cne $targetDomainKey) { continue }
+        if (-not (Test-CommentDomainMatch -Body $body -Domain $Domain)) { continue }
         $path = $comment.path ?? ''
         $line = $comment.line ?? $comment.original_line ?? 0
         $side = $comment.side ?? 'RIGHT'
@@ -2205,7 +2237,7 @@ function Load-FilterReport {
 function Build-SummaryBody {
     param(
         [string] $Outcome, [string] $OutcomeReason,
-        [hashtable] $DomainSummary,
+        [System.Collections.IDictionary] $DomainSummary,
         [object[]] $Suppressed,
         [object[]] $SkippedSubSkills,
         [object] $FilterReport
@@ -2247,7 +2279,7 @@ function Build-SummaryBody {
         $lines.Add('|---|---:|---:|---:|---:|---:|') | Out-Null
         $totalBacked = 0
         $totalAgent  = 0
-        foreach ($d in ($DomainSummary.Keys | Sort-Object)) {
+        foreach ($d in (Get-OrdinalSortedDomainLabels -Labels $DomainSummary.Keys)) {
             $entry = $DomainSummary[$d]
             $backed = if ($entry.ContainsKey('knowledgeBacked')) { [int]$entry.knowledgeBacked } else { [int]$entry.findings }
             $agent  = if ($entry.ContainsKey('agentFindings'))   { [int]$entry.agentFindings }   else { 0 }
@@ -2326,7 +2358,7 @@ function Write-FindingsBreakdown {
     param([object[]] $Findings)
 
     $sev = [ordered]@{ Critical = 0; High = 0; Medium = 0; Low = 0 }
-    $domains = @{}
+    $domains = [System.Collections.Generic.Dictionary[string, int]]::new([System.StringComparer]::Ordinal)
     $backed = 0
     $agent  = 0
     foreach ($f in @($Findings)) {
@@ -2342,7 +2374,8 @@ function Write-FindingsBreakdown {
     Write-LogPhaseDetail "By severity: $sevLine"
     Write-LogPhaseDetail "By origin:   knowledge-backed: $backed  agent: $agent"
     if ($domains.Count -gt 0) {
-        $domainLine = ($domains.Keys | Sort-Object | ForEach-Object { "$($_): $($domains[$_])" }) -join '  '
+        $domainLine = (Get-OrdinalSortedDomainLabels -Labels $domains.Keys |
+            ForEach-Object { "$($_): $($domains[$_])" }) -join '  '
         Write-LogPhaseDetail "By domain:   $domainLine"
     }
 }
@@ -2725,18 +2758,20 @@ if ($ReviewSource -eq 'local') {
 
 # --- Phase 4: Post comments -------------------------------------------------
 Write-LogGroup 'Post comments'
-$domainSummary = @{}
+$domainSummary = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
 $shouldPostFindings = $report.Outcome -in @('completed', 'partial')
 
 if ($shouldPostFindings -and $report.Findings.Count -gt 0) {
-    $findingsByDomain = @{}
+    $findingsByDomain = [System.Collections.Generic.Dictionary[string, System.Collections.Generic.List[object]]]::new(
+        [System.StringComparer]::Ordinal
+    )
     foreach ($finding in $report.Findings) {
         $d = $finding.domain
         if (-not $findingsByDomain.ContainsKey($d)) { $findingsByDomain[$d] = [System.Collections.Generic.List[object]]::new() }
         $findingsByDomain[$d].Add($finding) | Out-Null
     }
 
-    foreach ($d in ($findingsByDomain.Keys | Sort-Object)) {
+    foreach ($d in (Get-OrdinalSortedDomainLabels -Labels $findingsByDomain.Keys)) {
         $df = @($findingsByDomain[$d])
         Write-Host "Posting $($df.Count) $d finding(s)…"
         $posted = Post-Findings -Domain $d -Findings $df -LineMaps $lineMaps -ChangedFileSet $changedFileSet
