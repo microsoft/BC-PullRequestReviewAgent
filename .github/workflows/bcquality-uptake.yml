@@ -1,0 +1,161 @@
+# Manually-triggered workflow that uptakes the latest BCQuality release into the
+# engine by updating `agent/bcquality.config.yaml` (`ref` + `version`) and opening
+# a PR for review. Merging that PR bumps Z in the engine's X.Y.Z version, and the
+# release-on-merge workflow (version.yml) then publishes the new engine version.
+#
+# BCQuality publishes content releases as `vMAJOR.MINOR` git tags. This workflow
+# targets the highest such release tag by default; you can pin a specific tag via
+# the `bcquality_tag` input.
+name: Uptake BCQuality
+
+on:
+  workflow_dispatch:
+    inputs:
+      bcquality_tag:
+        description: 'BCQuality release tag to uptake (e.g. v1.3). Leave empty to use the latest vMAJOR.MINOR tag.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: bcquality-uptake
+  cancel-in-progress: false
+
+env:
+  BCQUALITY_REPO: microsoft/BCQuality
+  CONFIG_PATH: agent/bcquality.config.yaml
+
+jobs:
+  uptake:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout engine repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve target BCQuality release
+        id: target
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_TAG: ${{ inputs.bcquality_tag }}
+        run: |
+          set -euo pipefail
+
+          # Fetch all vMAJOR.MINOR tags with the commit SHA they point to.
+          # gh's /tags endpoint dereferences annotated tags to the commit.
+          tags_json="$(gh api --paginate "repos/${BCQUALITY_REPO}/tags" \
+            --jq '[.[] | select(.name | test("^v[0-9]+\\.[0-9]+$")) | {name: .name, sha: .commit.sha}]')"
+
+          if [[ "$(jq 'length' <<<"$tags_json")" -eq 0 ]]; then
+            echo "::error::No vMAJOR.MINOR release tags found in ${BCQUALITY_REPO}"
+            exit 1
+          fi
+
+          if [[ -n "${REQUESTED_TAG// /}" ]]; then
+            tag="$REQUESTED_TAG"
+            if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::bcquality_tag must look like vMAJOR.MINOR (got '$tag')"
+              exit 1
+            fi
+            sha="$(jq -r --arg t "$tag" '.[] | select(.name == $t) | .sha' <<<"$tags_json" | head -n1)"
+            if [[ -z "$sha" ]]; then
+              echo "::error::Tag '$tag' not found in ${BCQUALITY_REPO}"
+              exit 1
+            fi
+          else
+            # Highest tag by version (strip leading v, version-sort, take last).
+            tag="$(jq -r '.[].name' <<<"$tags_json" | sed 's/^v//' | sort -V | tail -n1)"
+            tag="v${tag}"
+            sha="$(jq -r --arg t "$tag" '.[] | select(.name == $t) | .sha' <<<"$tags_json" | head -n1)"
+          fi
+
+          version="${tag#v}"
+          echo "Resolved BCQuality ${tag} -> sha ${sha} (version ${version})"
+          {
+            echo "tag=${tag}"
+            echo "sha=${sha}"
+            echo "version=${version}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Compare with current pin
+        id: diff
+        env:
+          NEW_SHA: ${{ steps.target.outputs.sha }}
+          NEW_VERSION: ${{ steps.target.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          cur_ref="$(grep -E '^[[:space:]]*ref:[[:space:]]*' "$CONFIG_PATH" | head -1 | sed -E 's/^[[:space:]]*ref:[[:space:]]*//; s/[[:space:]]+$//')"
+          cur_version="$(grep -E '^[[:space:]]*version:[[:space:]]*' "$CONFIG_PATH" | head -1 | sed -E 's/^[[:space:]]*version:[[:space:]]*//; s/"//g; s/[[:space:]]+$//')"
+          echo "Current pin: ref=${cur_ref} version=${cur_version}"
+
+          if [[ "$cur_ref" == "$NEW_SHA" && "$cur_version" == "$NEW_VERSION" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Already pinned to the latest BCQuality release; nothing to do." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "cur_ref=${cur_ref}" >> "$GITHUB_OUTPUT"
+            echo "cur_version=${cur_version}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update config and open PR
+        if: ${{ steps.diff.outputs.changed == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_TAG: ${{ steps.target.outputs.tag }}
+          NEW_SHA: ${{ steps.target.outputs.sha }}
+          NEW_VERSION: ${{ steps.target.outputs.version }}
+          CUR_REF: ${{ steps.diff.outputs.cur_ref }}
+          CUR_VERSION: ${{ steps.diff.outputs.cur_version }}
+        run: |
+          set -euo pipefail
+
+          sed -i -E "s|^([[:space:]]*ref:[[:space:]]*).*|\1${NEW_SHA}|" "$CONFIG_PATH"
+          sed -i -E "s|^([[:space:]]*version:[[:space:]]*).*|\1\"${NEW_VERSION}\"|" "$CONFIG_PATH"
+
+          # Sanity-check the edit landed on exactly the expected values.
+          grep -qE "^[[:space:]]*ref:[[:space:]]*${NEW_SHA}\$" "$CONFIG_PATH"
+          grep -qE "^[[:space:]]*version:[[:space:]]*\"${NEW_VERSION}\"\$" "$CONFIG_PATH"
+
+          branch="bcquality-uptake/${NEW_TAG}"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -B "$branch"
+          git add "$CONFIG_PATH"
+          git commit -m "Uptake BCQuality ${NEW_TAG}" \
+            -m "Pin agent/bcquality.config.yaml to BCQuality ${NEW_TAG} (${NEW_SHA}), version ${NEW_VERSION}."
+          git push --force-with-lease origin "$branch"
+
+          title="Uptake BCQuality ${NEW_TAG}"
+          body="$(cat <<EOF
+          Uptakes the latest BCQuality release into the engine.
+
+          | Field | Before | After |
+          | --- | --- | --- |
+          | \`ref\` | \`${CUR_REF}\` | \`${NEW_SHA}\` |
+          | \`version\` | \`${CUR_VERSION}\` | \`${NEW_VERSION}\` |
+
+          Source: [${BCQUALITY_REPO}@${NEW_TAG}](https://github.com/${BCQUALITY_REPO}/releases/tag/${NEW_TAG})
+
+          Merging this PR bumps **Z** in the engine's X.Y.Z version; the release-on-merge workflow then publishes the new engine version.
+
+          **Reviewer checklist**
+          - [ ] The pinned \`ref\` points at a reviewed, trusted BCQuality commit (guards against prompt-injection via BCQuality content).
+          - [ ] \`version\` matches the BCQuality release major.minor.
+
+          _Generated by the Uptake BCQuality workflow._
+          EOF
+          )"
+
+          existing="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number' || true)"
+          if [[ -n "${existing:-}" ]]; then
+            gh pr edit "$existing" --title "$title" --body "$body"
+            echo "Updated existing PR #${existing}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            url="$(gh pr create --base main --head "$branch" --title "$title" --body "$body")"
+            echo "Opened PR: ${url}" >> "$GITHUB_STEP_SUMMARY"
+          fi
