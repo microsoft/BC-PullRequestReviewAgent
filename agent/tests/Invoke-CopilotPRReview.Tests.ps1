@@ -448,3 +448,29 @@ Describe 'Domain rendering safety' {
         $body | Should -Match 'API \\\| 100%\\_safe &amp; &lt;test&gt; &#36;math&#36; &#64;team &#58;smile&#58;'
     }
 }
+
+Describe 'Build-BootstrapPrompt' {
+    BeforeAll {
+        $AnalysisWorkspace = '/home/runner/review-target'
+        $ReviewSource = 'pr'
+        $Repository = 'microsoft/BCApps'
+        $PrNumber = 9479
+        $DiffBaseRef = 'origin/main'
+        $ReportFileName = 'findings-report.json'
+        $MinimumSeverity = 'Low'
+
+        $script:BootstrapPrompt = Build-BootstrapPrompt -TaskContextPath '/home/runner/bcquality/_task-context.json'
+    }
+
+    It 'instructs the agent to diff against the merge-base (three-dot) so only PR changes are reviewed' {
+        $script:BootstrapPrompt | Should -Match 'diff origin/main\.\.\.HEAD to see all changes'
+        $script:BootstrapPrompt | Should -Match 'diff origin/main\.\.\.HEAD -- <file>'
+        $script:BootstrapPrompt | Should -Match 'diff --name-only origin/main\.\.\.HEAD to list changed files'
+    }
+
+    It 'never instructs a two-dot diff, which would pull in files changed on the base since the branch point' {
+        $script:BootstrapPrompt | Should -Not -Match 'diff origin/main to see all changes'
+        $script:BootstrapPrompt | Should -Not -Match 'diff origin/main -- <file>'
+        $script:BootstrapPrompt | Should -Not -Match 'diff --name-only origin/main to list changed files'
+    }
+}

@@ -697,9 +697,9 @@ The base branch is: $DiffBaseRef
 The repository is: $reviewLabel
 
 Use git commands to analyze the changes:
-- git -C "$prWorktree" diff $DiffBaseRef to see all changes
-- git -C "$prWorktree" diff $DiffBaseRef -- <file> to see changes in a specific file
-- git -C "$prWorktree" diff --name-only $DiffBaseRef to list changed files
+- git -C "$prWorktree" diff $DiffBaseRef...HEAD to see all changes
+- git -C "$prWorktree" diff $DiffBaseRef...HEAD -- <file> to see changes in a specific file
+- git -C "$prWorktree" diff --name-only $DiffBaseRef...HEAD to list changed files
 
 CONTRACT:
 The current working directory is a BCQuality checkout. BCQuality is the
