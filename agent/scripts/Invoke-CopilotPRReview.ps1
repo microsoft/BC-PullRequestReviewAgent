@@ -2378,7 +2378,7 @@ function Build-SummaryBody {
     }
 
     $lines.Add('') | Out-Null
-    $lines.Add("<sub>Findings produced by the Copilot CLI agent against [BCQuality]($repoUrl) at ``$refForLinks``. Reply 👎 on any inline comment to flag false positives.</sub>") | Out-Null
+    $lines.Add("<sub>Findings produced by the AL review agent v$AgentVersion. Reply 👎 on any inline comment to flag false positives.</sub>") | Out-Null
     return $lines -join "`n"
 }
 
