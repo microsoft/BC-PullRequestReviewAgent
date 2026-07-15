@@ -128,6 +128,11 @@ on:
         type: string
         required: false
         default: copilot-pr-review
+      agent_version:
+        description: Full X.Y.Z version for comment metadata. Empty derives it from the checked-out engine.
+        type: string
+        required: false
+        default: ''
       agent_release_date:
         type: string
         required: false
@@ -135,7 +140,7 @@ on:
       agent_release_version:
         type: string
         required: false
-        default: '0'
+        default: ''
     outputs:
       pr_number:
         description: Resolved pull request number.
@@ -261,6 +266,7 @@ jobs:
           repository: ${{ env.ENGINE_REPO }}
           ref: ${{ inputs.engine_ref }}
           path: engine
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Checkout trusted target base
@@ -360,6 +366,7 @@ jobs:
           COPILOT_REVIEW_EMBED_DIFF: ${{ inputs.embed_diff }}
           COPILOT_REVIEW_CLI_TIMEOUT_MINUTES: ${{ inputs.cli_timeout_minutes }}
           COPILOT_REVIEW_AGENT_LABEL: ${{ inputs.agent_label }}
+          COPILOT_REVIEW_AGENT_VERSION: ${{ inputs.agent_version }}
           COPILOT_REVIEW_AGENT_RELEASE_DATE: ${{ inputs.agent_release_date }}
           COPILOT_REVIEW_AGENT_RELEASE_VERSION: ${{ inputs.agent_release_version }}
           BASE_BRANCH: ${{ needs.resolve.outputs.base_ref }}
@@ -400,6 +407,7 @@ jobs:
           repository: ${{ env.ENGINE_REPO }}
           ref: ${{ inputs.engine_ref }}
           path: engine
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Checkout trusted target base
@@ -441,6 +449,7 @@ jobs:
           MAX_FINDINGS_PER_DOMAIN: ${{ inputs.max_findings_per_domain }}
           COPILOT_REVIEW_FAIL_ON_PARSE_ERROR: ${{ inputs.fail_on_parse_error }}
           COPILOT_REVIEW_AGENT_LABEL: ${{ inputs.agent_label }}
+          COPILOT_REVIEW_AGENT_VERSION: ${{ inputs.agent_version }}
           COPILOT_REVIEW_AGENT_RELEASE_DATE: ${{ inputs.agent_release_date }}
           COPILOT_REVIEW_AGENT_RELEASE_VERSION: ${{ inputs.agent_release_version }}
           BASE_BRANCH: ${{ needs.resolve.outputs.base_ref }}
