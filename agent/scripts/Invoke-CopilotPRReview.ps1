@@ -57,6 +57,7 @@
         COMMENT_DELAY_SECONDS                - sleep between API posts (default: 0.5)
         COPILOT_REVIEW_FAIL_ON_PARSE_ERROR   - true|false (default: true)
         COPILOT_REVIEW_AGENT_LABEL           - agent label for comment metadata
+        COPILOT_REVIEW_AGENT_VERSION         - full X.Y.Z version; derived from the engine tag when omitted
         COPILOT_REVIEW_AGENT_RELEASE_DATE    - YYYY-MM-DD
         COPILOT_REVIEW_AGENT_RELEASE_VERSION - non-negative integer
         AGENT_COMMENT_DOC_URL                - URL surfaced in comment feedback line
@@ -90,8 +91,9 @@ $ReviewApplyTo    = $env:REVIEW_APPLY_TO ?? '**'
 $ReviewOutputDir  = $env:REVIEW_OUTPUT_DIR ?? (Join-Path $TrustedWorkspace 'review-output')
 $BaseBranch       = $env:BASE_BRANCH ?? 'main'
 $AgentLabelRaw    = ($env:COPILOT_REVIEW_AGENT_LABEL ?? '').Trim()
+$AgentSemVerRaw   = ($env:COPILOT_REVIEW_AGENT_VERSION ?? '').Trim()
 $AgentDateRaw     = ($env:COPILOT_REVIEW_AGENT_RELEASE_DATE ?? '').Trim()
-$AgentVersionRaw  = ($env:COPILOT_REVIEW_AGENT_RELEASE_VERSION ?? '0').Trim()
+$AgentVersionRaw  = ($env:COPILOT_REVIEW_AGENT_RELEASE_VERSION ?? '').Trim()
 $AgentCommentDocUrlRaw = ($env:AGENT_COMMENT_DOC_URL ?? '').Trim()
 $AnalysisWorkspace = $env:REVIEW_TARGET_WORKSPACE ?? (Join-Path (Split-Path -Parent $TrustedWorkspace) 'review-target')
 # Review source. 'pr' (default) fetches the PR head from origin into a detached
@@ -1726,6 +1728,32 @@ function Resolve-AgentReleaseVersion {
     return [int]$normalizedVersion
 }
 
+function Resolve-AgentVersion {
+    param([string] $EngineRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
+
+    if ($AgentSemVerRaw) {
+        if ($AgentSemVerRaw -notmatch '^\d+\.\d+\.\d+$') {
+            throw "COPILOT_REVIEW_AGENT_VERSION must use X.Y.Z format when provided. Got: $AgentSemVerRaw"
+        }
+        return $AgentSemVerRaw
+    }
+
+    if ($AgentDateRaw -or $AgentVersionRaw) {
+        return "$(Resolve-AgentReleaseDate).v$(Resolve-AgentReleaseVersion)"
+    }
+
+    $tagOutput = @(& git -C $EngineRoot tag --points-at HEAD 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not read engine tags: $($tagOutput -join [Environment]::NewLine)"
+    }
+
+    $version = @($tagOutput | Where-Object { $_ -match '^\d+\.\d+\.\d+$' } | Sort-Object { [version]$_ } -Descending | Select-Object -First 1)
+    if ($version.Count -eq 0) {
+        throw 'The checked-out engine commit has no X.Y.Z tag. Set COPILOT_REVIEW_AGENT_VERSION for an unreleased commit.'
+    }
+    return [string]$version[0]
+}
+
 function Resolve-AgentLabel {
     $configuredLabel = if ($AgentLabelRaw) { $AgentLabelRaw } else { 'copilot-pr-review' }
     $sanitizedLabel = ConvertTo-AgentLabelToken -Value $configuredLabel
@@ -2405,11 +2433,9 @@ function Save-ReviewArtifacts {
 # ---------------------------------------------------------------------------
 Assert-Config
 
-$AgentReleaseDate    = Resolve-AgentReleaseDate
-$AgentReleaseVersion = Resolve-AgentReleaseVersion
 $AgentLabel          = Resolve-AgentLabel
 $AgentCommentDocUrl  = Resolve-AgentCommentDocUrl
-$AgentVersion        = "$AgentReleaseDate.v$AgentReleaseVersion"
+$AgentVersion        = Resolve-AgentVersion
 # Resolving the iteration reads existing PR comments, for which the generate
 # phase holds no token; only the posting phases need it.
 $ReviewIteration     = if ($ReviewPhase -eq 'generate' -or $ReviewSource -eq 'local') { 0 } else { Resolve-ReviewIteration }

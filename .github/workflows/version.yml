@@ -1,19 +1,12 @@
-# Publishes a PRReviewAgent version on merge to main, following the X.Y.Z scheme.
+# Publishes a new PRReviewAgent version on every merge to main.
 #
 # Version format: X.Y.Z
-#   X — Major. Breaking changes to the pipeline template contract. Fixed at 1.
-#   Y — Orchestrator. This repo's judges / orchestration / pipeline template.
-#       Read from the repo-root VERSION file (major.minor = X.Y). Bump the minor
-#       when orchestration evolves; bump the major for a breaking contract change.
-#   Z — BCQuality. The BCQuality content release this engine is pinned to, read
-#       from `bcquality.version` (major.minor) in agent/bcquality.config.yaml.
-#       BCQuality's minor is a monotonic counter (never reset), so Z is unique.
+#   X - Major. Breaking workflow-contract changes. Fixed at 1.
+#   Y - Engine. Automatically increments for every new main commit.
+#   Z - BCQuality. The minor of the pinned BCQuality content version.
 #
-# A version is cut only when X.Y.Z actually changes (Y or Z bumped); merges that
-# change neither produce no new release. Each release creates an immutable tag
-# `X.Y.Z` and force-moves the floating `latest` tag to it, so consumers pinning
-# `@latest` always run the version PRReviewAgent currently vouches for. `latest`
-# floats globally, across majors. Pin `@X.Y.Z` to reproduce or test a version.
+# Existing X.Y.Z tags are the only engine-version state. Re-running the
+# workflow for an already-tagged commit reuses that version.
 
 name: Version on merge
 
@@ -42,29 +35,26 @@ jobs:
         id: version
         shell: bash
         run: |
-          base="$(tr -d ' \t\r\n' < VERSION)"
-          if [[ ! "$base" =~ ^[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::VERSION must contain a 'major.minor' value (X.Y) (got: '$base')"
-            exit 1
-          fi
-          x="${base%%.*}"   # X — major
-          y="${base#*.}"    # Y — orchestrator
-
-          # Z — BCQuality: the MINOR of the `version: major.minor` line under
-          # `bcquality:` in the config, bumped with `ref` when BCQuality releases.
-          bcq_full="$(grep -E '^[[:space:]]*version:[[:space:]]*"?[0-9]+\.[0-9]+' agent/bcquality.config.yaml | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)"
-          if [[ -z "$bcq_full" ]]; then
-            echo "::error::agent/bcquality.config.yaml must contain a 'version: major.minor' under bcquality:"
-            exit 1
-          fi
-          z="${bcq_full#*.}"
-
-          version="${x}.${y}.${z}"
           git fetch --tags --force --quiet
-          if git rev-parse -q --verify "refs/tags/${version}" >/dev/null; then
+
+          version="$(git tag --points-at "${GITHUB_SHA}" --list '[0-9]*.[0-9]*.[0-9]*' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+          if [[ -n "$version" ]]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Version ${version} already tagged — no new release."
+            echo "Commit already tagged as ${version}."
           else
+            latest="$(git tag --list '1.*.*' | grep -E '^1\.[0-9]+\.[0-9]+$' | sort -t. -k2,2n -k3,3n | tail -1)"
+            engine_version=0
+            if [[ -n "$latest" ]]; then
+              IFS='.' read -r _ engine_version _ <<< "$latest"
+            fi
+
+            bcq_full="$(grep -E '^[[:space:]]*version:[[:space:]]*"?[0-9]+\.[0-9]+' agent/bcquality.config.yaml | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)"
+            if [[ -z "$bcq_full" ]]; then
+              echo "::error::agent/bcquality.config.yaml must contain a major.minor BCQuality version"
+              exit 1
+            fi
+            bcquality_version="${bcq_full#*.}"
+            version="1.$((engine_version + 1)).${bcquality_version}"
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -77,8 +67,8 @@ jobs:
           git tag "$version" "${{ github.sha }}"
           git push origin "$version"
 
-          # Floating `latest` tag: force-moved to each new release so consumers
-          # pinning `uses:@latest` always run the currently-vouched version.
-          # `latest` floats globally, across majors, by design.
+      - name: Move latest tag
+        if: ${{ steps.version.outputs.exists == 'false' }}
+        run: |
           git tag -f latest "${{ github.sha }}"
           git push origin --force latest
