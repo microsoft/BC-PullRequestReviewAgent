@@ -37,18 +37,18 @@ jobs:
         run: |
           git fetch --tags --force --quiet
 
-          version="$(git tag --points-at "${GITHUB_SHA}" --list '[0-9]*.[0-9]*.[0-9]*' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+          version="$(git tag --points-at "${GITHUB_SHA}" --list '[0-9]*.[0-9]*.[0-9]*' | { grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1)"
           if [[ -n "$version" ]]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "Commit already tagged as ${version}."
           else
-            latest="$(git tag --list '1.*.*' | grep -E '^1\.[0-9]+\.[0-9]+$' | sort -t. -k2,2n -k3,3n | tail -1)"
+            latest="$(git tag --list '1.*.*' | { grep -E '^1\.[0-9]+\.[0-9]+$' || true; } | sort -t. -k2,2n -k3,3n | tail -1)"
             engine_version=0
             if [[ -n "$latest" ]]; then
               IFS='.' read -r _ engine_version _ <<< "$latest"
             fi
 
-            bcq_full="$(grep -E '^[[:space:]]*version:[[:space:]]*"?[0-9]+\.[0-9]+' agent/bcquality.config.yaml | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)"
+            bcq_full="$({ grep -E '^[[:space:]]*version:[[:space:]]*"?[0-9]+\.[0-9]+' agent/bcquality.config.yaml || true; } | head -1 | { grep -oE '[0-9]+\.[0-9]+' || true; } | head -1)"
             if [[ -z "$bcq_full" ]]; then
               echo "::error::agent/bcquality.config.yaml must contain a major.minor BCQuality version"
               exit 1
