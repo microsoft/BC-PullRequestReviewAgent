@@ -55,6 +55,7 @@
                                                Defaults to MINIMUM_SEVERITY.
         MAX_FINDINGS_PER_DOMAIN              - per-domain cap on posted findings (default: 25)
         COMMENT_DELAY_SECONDS                - sleep between API posts (default: 0.5)
+        COPILOT_REVIEW_POST_SUMMARY          - true|false: post the single overview summary comment (default: false)
         COPILOT_REVIEW_FAIL_ON_PARSE_ERROR   - true|false (default: true)
         COPILOT_REVIEW_AGENT_LABEL           - agent label for comment metadata
         COPILOT_REVIEW_AGENT_VERSION         - full X.Y.Z version; derived from the engine tag when omitted
@@ -86,6 +87,11 @@ $MaxFindings      = [int]($env:MAX_FINDINGS_PER_DOMAIN ?? 25)
 $CopilotCliTimeoutMinutes = [int]($env:COPILOT_REVIEW_CLI_TIMEOUT_MINUTES ?? 30)
 $FailOnParseErrorRaw = (($env:COPILOT_REVIEW_FAIL_ON_PARSE_ERROR ?? 'true') + '').Trim().ToLowerInvariant()
 $FailOnParseError = @('1','true','yes','on') -contains $FailOnParseErrorRaw
+# The overview summary comment is opt-in noise: it is off by default so only
+# actionable inline comments remain. Set COPILOT_REVIEW_POST_SUMMARY=true to
+# restore the single per-run summary comment.
+$PostSummaryRaw   = (($env:COPILOT_REVIEW_POST_SUMMARY ?? 'false') + '').Trim().ToLowerInvariant()
+$PostSummaryComment = @('1','true','yes','on') -contains $PostSummaryRaw
 $CommentDelay     = [double]($env:COMMENT_DELAY_SECONDS ?? 0.5)
 $ReviewApplyTo    = $env:REVIEW_APPLY_TO ?? '**'
 $ReviewOutputDir  = $env:REVIEW_OUTPUT_DIR ?? (Join-Path $TrustedWorkspace 'review-output')
@@ -1992,7 +1998,14 @@ function Build-CommentBody {
     $issueRemainder = if ($leadSplit.Count -gt 1) { $leadSplit[1].Trim() } else { '' }
 
     $preheaderDomain = ConvertTo-LaTexText -Value $domain
-    $preheader = '$\textbf{' + (Get-SeverityBadge -Severity $severity) + '\ ' + $severity + '\ Severity\ —\ ' + $preheaderDomain + '} \quad \color{gray}{\texttt{\small Iteration\ ' + $ReviewIteration + '}}$'
+    # The iteration counter is tracked only in the summary comment. When the
+    # summary is disabled the counter cannot advance, so the label is omitted
+    # rather than shown as a misleading constant "Iteration 1".
+    $preheader = '$\textbf{' + (Get-SeverityBadge -Severity $severity) + '\ ' + $severity + '\ Severity\ —\ ' + $preheaderDomain + '}'
+    if ($PostSummaryComment) {
+        $preheader += ' \quad \color{gray}{\texttt{\small Iteration\ ' + $ReviewIteration + '}}'
+    }
+    $preheader += '$'
 
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add($preheader) | Out-Null
@@ -2868,7 +2881,11 @@ $summaryBody = Build-SummaryBody `
     -SkippedSubSkills $report.SkippedSubSkills `
     -FilterReport $script:FilterReport
 
-Upsert-SummaryComment -Body $summaryBody
+if ($PostSummaryComment) {
+    Upsert-SummaryComment -Body $summaryBody
+} else {
+    Write-Host 'Summary comment disabled (COPILOT_REVIEW_POST_SUMMARY not set); posting inline findings only.'
+}
 Pop-LogGroup
 
 # --- Finalize ---------------------------------------------------------------

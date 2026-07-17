@@ -112,6 +112,11 @@ on:
         type: string
         required: false
         default: '25'
+      post_summary:
+        description: Post the single overview summary comment. Off by default so only inline findings are posted.
+        type: string
+        required: false
+        default: 'false'
       fail_on_parse_error:
         type: string
         required: false
@@ -447,6 +452,7 @@ jobs:
           MINIMUM_SEVERITY: ${{ inputs.minimum_severity }}
           AGENT_MINIMUM_SEVERITY: ${{ inputs.agent_minimum_severity || inputs.minimum_severity }}
           MAX_FINDINGS_PER_DOMAIN: ${{ inputs.max_findings_per_domain }}
+          COPILOT_REVIEW_POST_SUMMARY: ${{ inputs.post_summary }}
           COPILOT_REVIEW_FAIL_ON_PARSE_ERROR: ${{ inputs.fail_on_parse_error }}
           COPILOT_REVIEW_AGENT_LABEL: ${{ inputs.agent_label }}
           COPILOT_REVIEW_AGENT_VERSION: ${{ inputs.agent_version }}
