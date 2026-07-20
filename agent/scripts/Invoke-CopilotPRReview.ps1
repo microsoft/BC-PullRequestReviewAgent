@@ -1984,18 +1984,9 @@ function Build-CommentBody {
     $isAgentFinding = [bool]$Finding.isAgentFinding
 
     $normalizedIssue = [regex]::Replace($issue, '\s+', ' ').Trim()
-    [string[]]$leadSplit = if ($normalizedIssue) {
-        @($normalizedIssue -split '(?<=[.!?])\s+', 2)
-    } else {
-        @()
+    if (-not $normalizedIssue) {
+        $normalizedIssue = "$severity $(ConvertTo-MarkdownTableCell -Value $domain) finding"
     }
-    $lead = if ($leadSplit.Count -gt 0) { $leadSplit[0].Trim() } else {
-        "$severity $(ConvertTo-MarkdownTableCell -Value $domain) finding"
-    }
-    # Remainder of the issue paragraph after the lead sentence. The lead is
-    # already shown as the H3 heading, so re-emitting the full issue body would
-    # duplicate that first sentence in the comment.
-    $issueRemainder = if ($leadSplit.Count -gt 1) { $leadSplit[1].Trim() } else { '' }
 
     $preheaderDomain = ConvertTo-LaTexText -Value $domain
     # The iteration counter is tracked only in the summary comment. When the
@@ -2007,14 +1998,12 @@ function Build-CommentBody {
     }
     $preheader += '$'
 
+    # Render the issue as normal prose. Promoting the first sentence to an H3
+    # heading made long lead sentences render as an oversized title (bug 642599).
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add($preheader) | Out-Null
-    $lines.Add("### $lead") | Out-Null
-
-    if ($issueRemainder) {
-        $lines.Add('') | Out-Null
-        $lines.Add($issueRemainder) | Out-Null
-    }
+    $lines.Add('') | Out-Null
+    $lines.Add($normalizedIssue) | Out-Null
 
     if ($rec) {
         $lines.Add('') | Out-Null
