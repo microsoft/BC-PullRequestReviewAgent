@@ -2055,7 +2055,7 @@ function Build-CommentBody {
     $lines.Add('') | Out-Null
     $lines.Add((Get-AgentMetadataBlock -Domain $domain -IsAgentFinding $isAgentFinding)) | Out-Null
     $lines.Add('') | Out-Null
-    $lines.Add("<sub>👍 useful · ❤️ especially valuable · 👎 wrong - <a href=`"$AgentCommentDocUrl`">reply with why</a></sub>") | Out-Null
+    $lines.Add("<sub>👍 useful · ❤️ especially valuable · 👎 wrong - <a href=`"$AgentCommentDocUrl`">reply with why</a> · AL review agent v$AgentVersion</sub>") | Out-Null
     return $lines -join "`n"
 }
 
