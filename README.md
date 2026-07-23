@@ -18,10 +18,10 @@ Consumer repo (policy)  ──uses──▶  this engine (mechanism)  ──clon
 
 | Path | Purpose |
 | --- | --- |
-| `agent/scripts/Invoke-CopilotPRReview.ps1` | Orchestrator: checks out the PR head, builds the BCQuality `task-context`, runs the Copilot CLI, parses the findings, renders and posts inline comments + a summary. |
-| `agent/scripts/Get-BCQualityConfig.ps1` | Loads `bcquality.config.yaml` and applies environment-variable overrides. |
-| `agent/scripts/Invoke-BCQualityFilter.ps1` | Prunes a BCQuality clone on disk per the resolved allow/deny/layers policy. |
-| `agent/bcquality.config.yaml` | Default policy baseline. Consumers point at their own copy instead. |
+| `agents/ALReviewAgent/scripts/Invoke-CopilotPRReview.ps1` | Orchestrator: checks out the PR head, builds the BCQuality `task-context`, runs the Copilot CLI, parses the findings, renders and posts inline comments + a summary. |
+| `agents/ALReviewAgent/scripts/Get-BCQualityConfig.ps1` | Loads `bcquality.config.yaml` and applies environment-variable overrides. |
+| `agents/ALReviewAgent/scripts/Invoke-BCQualityFilter.ps1` | Prunes a BCQuality clone on disk per the resolved allow/deny/layers policy. |
+| `agents/ALReviewAgent/bcquality.config.yaml` | Default policy baseline. Consumers point at their own copy instead. |
 | `.github/workflows/review.yml` | Reusable (`workflow_call`) workflow that wires the whole thing together. |
 | `Online Evals/` | Pull-based scoring pipeline for evaluating review quality. |
 
@@ -64,7 +64,7 @@ automatically. To review a specific PR (e.g. from `workflow_dispatch`), pass
 Engine tags use `X.Y.Z`. `X.Y` comes from the repo-root [`VERSION`](VERSION)
 file and identifies the orchestrator contract/implementation; `Z` is the
 monotonically increasing BCQuality content minor from
-`bcquality.version` in [`agent/bcquality.config.yaml`](agent/bcquality.config.yaml).
+`bcquality.version` in [`agents/ALReviewAgent/bcquality.config.yaml`](agents/ALReviewAgent/bcquality.config.yaml).
 After a merge to `main`, `.github/workflows/version.yml` creates an immutable
 `X.Y.Z` tag only when that version does not already exist, then force-moves the
 floating `latest` tag to the merge commit. A merge that changes neither
@@ -121,7 +121,7 @@ The reusable workflow accepts three levels of BCQuality configuration:
 2. Individual workflow inputs such as `bcquality_repo` and `bcquality_ref`,
    which override the selected config through environment variables.
 3. When neither is supplied, the engine-owned
-   [`agent/bcquality.config.yaml`](agent/bcquality.config.yaml), whose
+   [`agents/ALReviewAgent/bcquality.config.yaml`](agents/ALReviewAgent/bcquality.config.yaml), whose
    `bcquality.ref` is the reproducible source-of-truth pin.
 
 A BCQuality dependency update changes both `bcquality.ref` to a reviewed commit
@@ -133,7 +133,7 @@ For additive producer/consumer contract changes, roll out producer-first:
 
 1. Merge and release the BCQuality producer change.
 2. Merge and release the backward-compatible engine consumer change.
-3. Update `agent/bcquality.config.yaml` to the BCQuality release commit that
+3. Update `agents/ALReviewAgent/bcquality.config.yaml` to the BCQuality release commit that
    contains the producer change, update `bcquality.version` with it, and verify
    the workflow's resolved `bcquality_sha` plus representative rendered output.
 
@@ -158,4 +158,4 @@ single-process mode (`REVIEW_PHASE=all`) that generates and posts in one pass �
 used for local development and offline evaluation (e.g. BC-Bench). Provide a
 BCQuality checkout via `BCQUALITY_ROOT`, the repo under review via
 `REVIEW_WORKSPACE`, and point `BCQUALITY_CONFIG_PATH` at a policy config; then
-invoke `agent/scripts/Invoke-CopilotPRReview.ps1`.
+invoke `agents/ALReviewAgent/scripts/Invoke-CopilotPRReview.ps1`.

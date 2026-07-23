@@ -4,7 +4,7 @@
     optionally launch a second Copilot CLI pass that fixes the findings.
 
 .DESCRIPTION
-    Thin wrapper around agent/scripts/Invoke-CopilotPRReview.ps1 that handles
+    Thin wrapper around agents/ALReviewAgent/scripts/Invoke-CopilotPRReview.ps1 that handles
     the two local workflows:
 
       Mode = Branch  (default)
@@ -41,7 +41,7 @@
     Required.
 
 .PARAMETER ConfigPath
-    Path to a bcquality.config.yaml. Defaults to agent/bcquality.config.yaml
+    Path to a bcquality.config.yaml. Defaults to agents/ALReviewAgent/bcquality.config.yaml
     in this engine repo.
 
 .PARAMETER OutputDir
@@ -135,11 +135,11 @@ $ErrorActionPreference = 'Stop'
 # full tree, so "Existing" mode reviews every tracked file.
 $EmptyTreeSha = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 
-$engineRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
-$reviewScript = Join-Path $engineRoot 'agent/scripts/Invoke-CopilotPRReview.ps1'
-$configScript = Join-Path $engineRoot 'agent/scripts/Get-BCQualityConfig.ps1'
-$filterScript = Join-Path $engineRoot 'agent/scripts/Invoke-BCQualityFilter.ps1'
-if (-not $ConfigPath) { $ConfigPath = Join-Path $engineRoot 'agent/bcquality.config.yaml' }
+$agentRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
+$reviewScript = Join-Path $agentRoot 'scripts/Invoke-CopilotPRReview.ps1'
+$configScript = Join-Path $agentRoot 'scripts/Get-BCQualityConfig.ps1'
+$filterScript = Join-Path $agentRoot 'scripts/Invoke-BCQualityFilter.ps1'
+if (-not $ConfigPath) { $ConfigPath = Join-Path $agentRoot 'bcquality.config.yaml' }
 
 $RepoPath      = (Resolve-Path $RepoPath).Path
 $BCQualityRoot = (Resolve-Path $BCQualityRoot).Path

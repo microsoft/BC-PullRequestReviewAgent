@@ -9,7 +9,7 @@
     knowledge live in BCQuality (https://github.com/microsoft/BCQuality, or
     a partner fork). The consuming repo owns its policy config
     (bcquality.config.yaml), passed in via BCQUALITY_CONFIG_PATH; when unset
-    the engine's default baseline (agent/bcquality.config.yaml) is used.
+    the engine's default baseline (agents/ALReviewAgent/bcquality.config.yaml) is used.
     The runner workflow clones BCQuality, filters it per the resolved
     configuration, and hands this script the resulting BCQUALITY_ROOT path.
 
@@ -1779,7 +1779,7 @@ function Resolve-AgentReleaseVersion {
 }
 
 function Resolve-AgentVersion {
-    param([string] $EngineRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
+    param([string] $EngineRoot = (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))))
 
     if ($AgentSemVerRaw) {
         if ($AgentSemVerRaw -notmatch '^\d+\.\d+\.\d+$') {

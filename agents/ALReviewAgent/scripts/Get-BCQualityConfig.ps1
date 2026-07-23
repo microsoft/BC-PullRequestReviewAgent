@@ -34,7 +34,7 @@
     Path to bcquality.config.yaml. When omitted, falls back to the
     BCQUALITY_CONFIG_PATH environment variable, then to the engine default
     baseline (a sibling of this script's parent directory,
-    agent/bcquality.config.yaml).
+    agents/ALReviewAgent/bcquality.config.yaml).
 #>
 [CmdletBinding()]
 param(
@@ -178,4 +178,3 @@ if (-not $repoUri -or $repoUri.Scheme -notin @('http','https')) {
 }
 
 return $cfg
-

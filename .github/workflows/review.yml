@@ -315,7 +315,7 @@ jobs:
           BCQUALITY_APPLICATION_AREA: ${{ inputs.application_area }}
           BCQUALITY_BC_VERSION: ${{ inputs.bc_version }}
         run: |
-          $cfg = & "${{ github.workspace }}/engine/agent/scripts/Get-BCQualityConfig.ps1"
+          $cfg = & "${{ github.workspace }}/engine/agents/ALReviewAgent/scripts/Get-BCQualityConfig.ps1"
           $repo = $cfg.bcquality.repo
           $ref  = $cfg.bcquality.ref
           $root = "${{ github.workspace }}/bcquality"
@@ -334,7 +334,7 @@ jobs:
           $resolvedSha = (& git -C $root rev-parse HEAD).Trim()
           Write-Host "BCQuality resolved SHA: $resolvedSha"
 
-          & "${{ github.workspace }}/engine/agent/scripts/Invoke-BCQualityFilter.ps1" `
+          & "${{ github.workspace }}/engine/agents/ALReviewAgent/scripts/Invoke-BCQualityFilter.ps1" `
               -BCQualityRoot $root `
               -Config $cfg | Out-Null
 
@@ -376,7 +376,7 @@ jobs:
           COPILOT_REVIEW_AGENT_RELEASE_VERSION: ${{ inputs.agent_release_version }}
           BASE_BRANCH: ${{ needs.resolve.outputs.base_ref }}
         run: |
-          & "${{ github.workspace }}/engine/agent/scripts/Invoke-CopilotPRReview.ps1"
+          & "${{ github.workspace }}/engine/agents/ALReviewAgent/scripts/Invoke-CopilotPRReview.ps1"
 
       - name: Upload review output
         if: always()
@@ -460,7 +460,7 @@ jobs:
           COPILOT_REVIEW_AGENT_RELEASE_VERSION: ${{ inputs.agent_release_version }}
           BASE_BRANCH: ${{ needs.resolve.outputs.base_ref }}
         run: |
-          & "${{ github.workspace }}/engine/agent/scripts/Invoke-CopilotPRReview.ps1"
+          & "${{ github.workspace }}/engine/agents/ALReviewAgent/scripts/Invoke-CopilotPRReview.ps1"
 
       - name: Upload published review artifacts
         if: always()

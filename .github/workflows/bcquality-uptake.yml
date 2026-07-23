@@ -1,5 +1,5 @@
 # Manually-triggered workflow that uptakes the latest BCQuality release into the
-# engine by updating `agent/bcquality.config.yaml` (`ref` + `version`) and opening
+# engine by updating `agents/ALReviewAgent/bcquality.config.yaml` (`ref` + `version`) and opening
 # a PR for review. Merging that PR bumps Z in the engine's X.Y.Z version, and the
 # release-on-merge workflow (version.yml) then publishes the new engine version.
 #
@@ -26,7 +26,7 @@ concurrency:
 
 env:
   BCQUALITY_REPO: microsoft/BCQuality
-  CONFIG_PATH: agent/bcquality.config.yaml
+  CONFIG_PATH: agents/ALReviewAgent/bcquality.config.yaml
 
 jobs:
   uptake:
@@ -127,7 +127,7 @@ jobs:
           git checkout -B "$branch"
           git add "$CONFIG_PATH"
           git commit -m "Uptake BCQuality ${NEW_TAG}" \
-            -m "Pin agent/bcquality.config.yaml to BCQuality ${NEW_TAG} (${NEW_SHA}), version ${NEW_VERSION}."
+            -m "Pin agents/ALReviewAgent/bcquality.config.yaml to BCQuality ${NEW_TAG} (${NEW_SHA}), version ${NEW_VERSION}."
           git push --force-with-lease origin "$branch"
 
           title="Uptake BCQuality ${NEW_TAG}"
