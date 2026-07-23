@@ -9,7 +9,7 @@
     knowledge live in BCQuality (https://github.com/microsoft/BCQuality, or
     a partner fork). The consuming repo owns its policy config
     (bcquality.config.yaml), passed in via BCQUALITY_CONFIG_PATH; when unset
-    the engine's default baseline (agent/bcquality.config.yaml) is used.
+    the engine's default baseline (agents/ALReviewAgent/bcquality.config.yaml) is used.
     The runner workflow clones BCQuality, filters it per the resolved
     configuration, and hands this script the resulting BCQUALITY_ROOT path.
 
@@ -59,6 +59,7 @@
                                                Defaults to MINIMUM_SEVERITY.
         MAX_FINDINGS_PER_DOMAIN              - per-domain cap on posted findings (default: 25)
         COMMENT_DELAY_SECONDS                - sleep between API posts (default: 0.5)
+        COPILOT_REVIEW_POST_SUMMARY          - true|false: post the single overview summary comment (default: false)
         COPILOT_REVIEW_FAIL_ON_PARSE_ERROR   - true|false (default: true)
         COPILOT_REVIEW_AGENT_LABEL           - agent label for comment metadata
         COPILOT_REVIEW_AGENT_VERSION         - full X.Y.Z version; derived from the engine tag when omitted
@@ -105,6 +106,11 @@ if ($CopilotLogLevel -notin @('none', 'error', 'warning', 'info', 'debug', 'all'
 }
 $FailOnParseErrorRaw = (($env:COPILOT_REVIEW_FAIL_ON_PARSE_ERROR ?? 'true') + '').Trim().ToLowerInvariant()
 $FailOnParseError = @('1','true','yes','on') -contains $FailOnParseErrorRaw
+# The overview summary comment is opt-in noise: it is off by default so only
+# actionable inline comments remain. Set COPILOT_REVIEW_POST_SUMMARY=true to
+# restore the single per-run summary comment.
+$PostSummaryRaw   = (($env:COPILOT_REVIEW_POST_SUMMARY ?? 'false') + '').Trim().ToLowerInvariant()
+$PostSummaryComment = @('1','true','yes','on') -contains $PostSummaryRaw
 $CommentDelay     = [double]($env:COMMENT_DELAY_SECONDS ?? 0.5)
 $ReviewApplyTo    = $env:REVIEW_APPLY_TO ?? '**'
 # Optional git pathspec (semicolon-separated) that scopes the diff itself.
@@ -1941,7 +1947,7 @@ function Resolve-AgentReleaseVersion {
 }
 
 function Resolve-AgentVersion {
-    param([string] $EngineRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
+    param([string] $EngineRoot = (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))))
 
     if ($AgentSemVerRaw) {
         if ($AgentSemVerRaw -notmatch '^\d+\.\d+\.\d+$') {
@@ -2146,30 +2152,26 @@ function Build-CommentBody {
     $isAgentFinding = [bool]$Finding.isAgentFinding
 
     $normalizedIssue = [regex]::Replace($issue, '\s+', ' ').Trim()
-    [string[]]$leadSplit = if ($normalizedIssue) {
-        @($normalizedIssue -split '(?<=[.!?])\s+', 2)
-    } else {
-        @()
+    if (-not $normalizedIssue) {
+        $normalizedIssue = "$severity $(ConvertTo-MarkdownTableCell -Value $domain) finding"
     }
-    $lead = if ($leadSplit.Count -gt 0) { $leadSplit[0].Trim() } else {
-        "$severity $(ConvertTo-MarkdownTableCell -Value $domain) finding"
-    }
-    # Remainder of the issue paragraph after the lead sentence. The lead is
-    # already shown as the H3 heading, so re-emitting the full issue body would
-    # duplicate that first sentence in the comment.
-    $issueRemainder = if ($leadSplit.Count -gt 1) { $leadSplit[1].Trim() } else { '' }
 
     $preheaderDomain = ConvertTo-LaTexText -Value $domain
-    $preheader = '$\textbf{' + (Get-SeverityBadge -Severity $severity) + '\ ' + $severity + '\ Severity\ —\ ' + $preheaderDomain + '} \quad \color{gray}{\texttt{\small Iteration\ ' + $ReviewIteration + '}}$'
+    # The iteration counter is tracked only in the summary comment. When the
+    # summary is disabled the counter cannot advance, so the label is omitted
+    # rather than shown as a misleading constant "Iteration 1".
+    $preheader = '$\textbf{' + (Get-SeverityBadge -Severity $severity) + '\ ' + $severity + '\ Severity\ —\ ' + $preheaderDomain + '}'
+    if ($PostSummaryComment) {
+        $preheader += ' \quad \color{gray}{\texttt{\small Iteration\ ' + $ReviewIteration + '}}'
+    }
+    $preheader += '$'
 
+    # Render the issue as normal prose. Promoting the first sentence to an H3
+    # heading made long lead sentences render as an oversized title (bug 642599).
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add($preheader) | Out-Null
-    $lines.Add("### $lead") | Out-Null
-
-    if ($issueRemainder) {
-        $lines.Add('') | Out-Null
-        $lines.Add($issueRemainder) | Out-Null
-    }
+    $lines.Add('') | Out-Null
+    $lines.Add($normalizedIssue) | Out-Null
 
     if ($rec) {
         $lines.Add('') | Out-Null
@@ -2221,7 +2223,7 @@ function Build-CommentBody {
     $lines.Add('') | Out-Null
     $lines.Add((Get-AgentMetadataBlock -Domain $domain -IsAgentFinding $isAgentFinding)) | Out-Null
     $lines.Add('') | Out-Null
-    $lines.Add("<sub>👍 useful · ❤️ especially valuable · 👎 wrong - <a href=`"$AgentCommentDocUrl`">reply with why</a></sub>") | Out-Null
+    $lines.Add("<sub>👍 useful · ❤️ especially valuable · 👎 wrong - <a href=`"$AgentCommentDocUrl`">reply with why</a> · AL review agent v$AgentVersion</sub>") | Out-Null
     return $lines -join "`n"
 }
 
@@ -3060,7 +3062,11 @@ $summaryBody = Build-SummaryBody `
     -SkippedSubSkills $report.SkippedSubSkills `
     -FilterReport $script:FilterReport
 
-Upsert-SummaryComment -Body $summaryBody
+if ($PostSummaryComment) {
+    Upsert-SummaryComment -Body $summaryBody
+} else {
+    Write-Host 'Summary comment disabled (COPILOT_REVIEW_POST_SUMMARY not set); posting inline findings only.'
+}
 Pop-LogGroup
 
 # --- Finalize ---------------------------------------------------------------

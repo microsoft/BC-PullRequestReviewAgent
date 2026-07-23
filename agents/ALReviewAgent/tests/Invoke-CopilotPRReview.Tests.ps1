@@ -367,7 +367,7 @@ Describe 'Domain grouping and caps' {
 }
 
 Describe 'Domain rendering safety' {
-    It 'preserves domain case in fallback headings' {
+    It 'preserves domain case in fallback text' {
         $finding = [pscustomobject]@{
             domain = 'API'
             severity = 'High'
@@ -378,7 +378,7 @@ Describe 'Domain rendering safety' {
             isAgentFinding = $false
         }
 
-        Build-CommentBody -Finding $finding | Should -Match '### High API finding'
+        Build-CommentBody -Finding $finding | Should -Match 'High API finding'
     }
 
     It 'renders Markdown-active domain punctuation literally' {
@@ -393,7 +393,7 @@ Describe 'Domain rendering safety' {
         }
 
         Build-CommentBody -Finding $finding |
-            Should -Match '### High &#36;&#64;\\\[API\\\]\\\(//example\\\)&#58; \\\~\\\~C\\#\\\~\\\~\\!&#36; finding'
+            Should -Match 'High &#36;&#64;\\\[API\\\]\\\(//example\\\)&#58; \\\~\\\~C\\#\\\~\\\~\\\!&#36; finding'
     }
 
     It 'shows agent provenance for an exact lowercase agent label' {

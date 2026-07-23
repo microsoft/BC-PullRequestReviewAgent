@@ -48,9 +48,9 @@ jobs:
               IFS='.' read -r _ engine_version _ <<< "$latest"
             fi
 
-            bcq_full="$({ grep -E '^[[:space:]]*version:[[:space:]]*"?[0-9]+\.[0-9]+' agent/bcquality.config.yaml || true; } | head -1 | { grep -oE '[0-9]+\.[0-9]+' || true; } | head -1)"
+            bcq_full="$({ grep -E '^[[:space:]]*version:[[:space:]]*"?[0-9]+\.[0-9]+' agents/ALReviewAgent/bcquality.config.yaml || true; } | head -1 | { grep -oE '[0-9]+\.[0-9]+' || true; } | head -1)"
             if [[ -z "$bcq_full" ]]; then
-              echo "::error::agent/bcquality.config.yaml must contain a major.minor BCQuality version"
+              echo "::error::agents/ALReviewAgent/bcquality.config.yaml must contain a major.minor BCQuality version"
               exit 1
             fi
             bcquality_version="${bcq_full#*.}"
