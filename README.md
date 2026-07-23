@@ -159,3 +159,7 @@ used for local development and offline evaluation (e.g. BC-Bench). Provide a
 BCQuality checkout via `BCQUALITY_ROOT`, the repo under review via
 `REVIEW_WORKSPACE`, and point `BCQUALITY_CONFIG_PATH` at a policy config; then
 invoke `agents/ALReviewAgent/scripts/Invoke-CopilotPRReview.ps1`.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
