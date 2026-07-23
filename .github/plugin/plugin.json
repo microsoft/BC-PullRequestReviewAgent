@@ -1,0 +1,20 @@
+{
+  "name": "al-review",
+  "description": "Run the AL / Business Central code review agent locally against a codebase or branch, then summarize findings and optionally auto-fix them. Read-only by default. Reviewer engine ships in this repo; only the microsoft/BCQuality knowledge base is fetched at runtime.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Business Central",
+    "email": "bc-control-plane@service.microsoft.com"
+  },
+  "repository": "https://github.com/microsoft/BC-ALAgents",
+  "license": "MIT",
+  "keywords": [
+    "bc",
+    "al",
+    "code-review",
+    "quality"
+  ],
+  "skills": [
+    "./agents/ALReviewAgent/skills/al-review/"
+  ]
+}

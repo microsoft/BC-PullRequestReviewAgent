@@ -110,6 +110,14 @@ $AnalysisWorkspace = $env:REVIEW_TARGET_WORKSPACE ?? (Join-Path (Split-Path -Par
 $ReviewSource = (($env:REVIEW_SOURCE ?? 'pr') + '').Trim().ToLowerInvariant()
 $BaseRef = ($env:BASE_REF ?? '').Trim()
 $DiffBaseRef = if ($ReviewSource -eq 'local') { $BaseRef } else { "origin/$BaseBranch" }
+# Diff range used for all change discovery. Default is three-dot
+# ($base...HEAD): the diff from the merge-base of $base and HEAD, which is
+# correct for normal branch/PR reviews. When the caller sets
+# REVIEW_DIFF_STYLE=direct, use two-dot ($base..HEAD) instead. Two-dot is
+# required when $base is a synthesized parent-less commit (e.g. Existing-mode
+# whole-tree review against an empty base), which has no merge-base with HEAD
+# and would make three-dot fail with "no merge base".
+$DiffRange = if ((($env:REVIEW_DIFF_STYLE ?? '') + '').Trim().ToLowerInvariant() -eq 'direct') { "$DiffBaseRef..HEAD" } else { "$DiffBaseRef...HEAD" }
 $SummaryMarker    = '<!-- copilot-pr-review-summary -->'
 $BaseUrl          = "https://api.github.com/repos/$Repository"
 
@@ -423,13 +431,13 @@ function Invoke-GitCommandAuthenticated {
 }
 
 function Get-GitChangedFiles {
-    $output = Invoke-GitCommand -Arguments @('-C', $AnalysisWorkspace, 'diff', '--name-only', "$DiffBaseRef...HEAD")
+    $output = Invoke-GitCommand -Arguments @('-C', $AnalysisWorkspace, 'diff', '--name-only', $DiffRange)
     return @($output | Where-Object { $_ -and $_.Trim() })
 }
 
 function Get-GitFilePatch {
     param([string] $FilePath)
-    $output = Invoke-GitCommand -Arguments @('-C', $AnalysisWorkspace, 'diff', "$DiffBaseRef...HEAD", '--', $FilePath)
+    $output = Invoke-GitCommand -Arguments @('-C', $AnalysisWorkspace, 'diff', $DiffRange, '--', $FilePath)
     return ($output -join "`n")
 }
 
@@ -703,9 +711,9 @@ The base branch is: $DiffBaseRef
 The repository is: $reviewLabel
 
 Use git commands to analyze the changes:
-- git -C "$prWorktree" diff $DiffBaseRef...HEAD to see all changes
-- git -C "$prWorktree" diff $DiffBaseRef...HEAD -- <file> to see changes in a specific file
-- git -C "$prWorktree" diff --name-only $DiffBaseRef...HEAD to list changed files
+- git -C "$prWorktree" diff $DiffRange to see all changes
+- git -C "$prWorktree" diff $DiffRange -- <file> to see changes in a specific file
+- git -C "$prWorktree" diff --name-only $DiffRange to list changed files
 
 CONTRACT:
 The current working directory is a BCQuality checkout. BCQuality is the
@@ -1792,16 +1800,39 @@ function Resolve-AgentVersion {
         return "$(Resolve-AgentReleaseDate).v$(Resolve-AgentReleaseVersion)"
     }
 
+    # Preferred source: an X.Y.Z tag on the checked-out engine commit. This only
+    # works in a real git checkout; a plugin install is a flattened snapshot with
+    # no .git, so `git tag` fails. In that case fall back to the shipped
+    # plugin.json version rather than aborting the whole review.
     $tagOutput = @(& git -C $EngineRoot tag --points-at HEAD 2>&1)
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not read engine tags: $($tagOutput -join [Environment]::NewLine)"
+    if ($LASTEXITCODE -eq 0) {
+        $version = @($tagOutput | Where-Object { $_ -match '^\d+\.\d+\.\d+$' } | Sort-Object { [version]$_ } -Descending | Select-Object -First 1)
+        if ($version.Count -gt 0) {
+            return [string]$version[0]
+        }
     }
 
-    $version = @($tagOutput | Where-Object { $_ -match '^\d+\.\d+\.\d+$' } | Sort-Object { [version]$_ } -Descending | Select-Object -First 1)
-    if ($version.Count -eq 0) {
-        throw 'The checked-out engine commit has no X.Y.Z tag. Set COPILOT_REVIEW_AGENT_VERSION for an unreleased commit.'
+    $manifestVersion = Get-PluginManifestVersion -EngineRoot $EngineRoot
+    if ($manifestVersion) {
+        return $manifestVersion
     }
-    return [string]$version[0]
+
+    throw 'Could not determine engine version: no X.Y.Z git tag on HEAD and no version in .github/plugin/plugin.json. Set COPILOT_REVIEW_AGENT_VERSION for an unreleased commit.'
+}
+
+function Get-PluginManifestVersion {
+    param([string] $EngineRoot)
+
+    $manifestPath = Join-Path $EngineRoot '.github/plugin/plugin.json'
+    if (-not (Test-Path -LiteralPath $manifestPath)) { return $null }
+    try {
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        return $null
+    }
+    $manifestVersion = ($manifest.version + '').Trim()
+    if ($manifestVersion -notmatch '^\d+\.\d+\.\d+$') { return $null }
+    return $manifestVersion
 }
 
 function Resolve-AgentLabel {
@@ -2658,7 +2689,7 @@ else {
     Checkout-PrBranch
 }
 
-Write-Host "Fetching changed files via git diff ($DiffBaseRef...HEAD)"
+Write-Host "Fetching changed files via git diff ($DiffRange)"
 $changedFileNames = @(Get-GitChangedFiles)
 Write-Host "Found $($changedFileNames.Count) changed file(s)"
 $displayCap = 50
